@@ -4,8 +4,9 @@ import pandas as pd
 import os
 from datetime import datetime
 import base64
-import zipfile
 import io
+from docx import Document
+from docx.shared import Inches
 
 # ---------------------------------------------------------
 # 1. CẤU HÌNH TRANG & ICON
@@ -41,14 +42,15 @@ if icon_link:
     )
 
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V100 MỚI TÍNH)
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V102)
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-# Sử dụng tên database hoàn toàn mới để ép Streamlit tạo mới sạch sẽ 100%
-conn = sqlite3.connect("kho_system_v100.db", check_same_thread=False)
+MASTER_DOCX_PATH = os.path.join(UPLOAD_DIR, "Baocao_Tonghop_Capnhat.docx")
+
+conn = sqlite3.connect("kho_system_v102.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''
@@ -75,7 +77,6 @@ CREATE TABLE IF NOT EXISTS chi_tiet_kho (
 )
 ''')
 
-# Khởi tạo danh mục kho
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_kho (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_kho TEXT UNIQUE)')
 count_kho = cursor.execute('SELECT COUNT(*) FROM danh_muc_kho').fetchone()[0]
 if count_kho == 0:
@@ -83,7 +84,6 @@ if count_kho == 0:
     for kho in danh_sach_kho_ban_dau:
         cursor.execute('INSERT OR IGNORE INTO danh_muc_kho (ten_kho) VALUES (?)', (kho,))
 
-# Khởi tạo danh mục trạng thái
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_trang_thai (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_trang_thai TEXT UNIQUE)')
 count_tt = cursor.execute('SELECT COUNT(*) FROM danh_muc_trang_thai').fetchone()[0]
 if count_tt == 0:
@@ -91,7 +91,6 @@ if count_tt == 0:
     for tt in ds_tt_ban_dau:
         cursor.execute('INSERT OR IGNORE INTO danh_muc_trang_thai (ten_trang_thai) VALUES (?)', (tt,))
 
-# Tạo bảng Tài khoản chuẩn 5 cột ngay từ đầu
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tai_khoan (
     username TEXT PRIMARY KEY,
@@ -108,7 +107,93 @@ cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai
 conn.commit()
 
 # ---------------------------------------------------------
-# 3. ĐĂNG NHẬP & XỬ LÝ PHÂN QUYỀN
+# 3. HÀM GỘP NỐI TIẾP VÀO FILE TỔNG DUY NHẤT & FILE RIÊNG CA
+# ---------------------------------------------------------
+def append_to_master_docx(ma_ca):
+    row_ca = cursor.execute("SELECT * FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,)).fetchone()
+    chi_tiet = cursor.execute("SELECT ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,)).fetchall()
+
+    # Nếu chưa có file tổng thì tạo mới, nếu có rồi thì mở ra viết nối tiếp vào
+    if os.path.exists(MASTER_DOCX_PATH):
+        doc = Document(MASTER_DOCX_PATH)
+        doc.add_page_break()
+    else:
+        doc = Document()
+        title = doc.add_heading("SỔ TAY TỔNG HỢP BÁO CÁO VẬN HÀNH KHO & THIẾT BỊ", level=0)
+
+    # Viết nội dung ca mới vào file tổng
+    doc.add_heading(f"📌 BÁO CÁO CA TRỰC: {ma_ca}", level=1)
+    doc.add_paragraph(f"⏰ Thời gian: {row_ca[2]} | 🔄 Ca: {row_ca[3]} | 👤 Người báo cáo: {row_ca[4]}")
+    doc.add_paragraph(f"📝 Ghi chú chung: {row_ca[5] if row_ca[5] else 'Không có'}")
+    
+    # Bảng số liệu
+    table = doc.add_table(rows=1, cols=5)
+    table.style = 'Table Grid'
+    hdr = table.rows[0].cells
+    hdr[0].text = 'Tên Kho / Thiết Bị'
+    hdr[1].text = 'Nhiệt Độ (°C)'
+    hdr[2].text = 'Độ Ẩm (%)'
+    hdr[3].text = 'Sản Lượng (Tấn)'
+    hdr[4].text = 'Trạng Thái'
+    
+    for item in chi_tiet:
+        r = table.add_row().cells
+        r[0].text, r[1].text, r[2].text, r[3].text, r[4].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4])
+
+    doc.add_paragraph("")
+    # Chèn hình ảnh chi tiết
+    doc.add_heading("📸 Hình Ảnh Chi Tiết Kèm Theo:", level=2)
+    for item in chi_tiet:
+        img_path = item[5]
+        if img_path and os.path.exists(img_path):
+            doc.add_paragraph(f"• {item[0]} (Nhiệt độ: {item[1]}°C, Độ ẩm: {item[2]}%, Trạng thái: {item[4]}):")
+            try:
+                doc.add_picture(img_path, width=Inches(4.0))
+            except:
+                doc.add_paragraph("⚠️ Không thể tải hình ảnh này.")
+
+    # Lưu lại file tổng duy nhất
+    doc.save(MASTER_DOCX_PATH)
+
+    # Tạo thêm 1 file riêng theo mã ca để lưu trữ tra cứu lịch sử cũ khi cần
+    single_doc_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
+    single_doc = Document()
+    single_doc.add_heading(f"BÁO CÁO CA TRỰC: {ma_ca}", level=1)
+    single_doc.add_paragraph(f"⏰ Thời gian: {row_ca[2]} | Ca: {row_ca[3]} | Người báo cáo: {row_ca[4]}")
+    single_doc.add_paragraph(f"Ghi chú: {row_ca[5]}")
+    
+    t_s = single_doc.add_table(rows=1, cols=5)
+    t_s.style = 'Table Grid'
+    h_s = t_s.rows[0].cells
+    h_s[0].text, h_s[1].text, h_s[2].text, h_s[3].text, h_s[4].text = 'Kho', 'Nhiệt độ', 'Độ ẩm', 'Sản lượng', 'Trạng thái'
+    for item in chi_tiet:
+        rs = t_s.add_row().cells
+        rs[0].text, rs[1].text, rs[2].text, rs[3].text, rs[4].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4])
+    
+    for item in chi_tiet:
+        if item[5] and os.path.exists(item[5]):
+            single_doc.add_paragraph(f"• Ảnh {item[0]}:")
+            try:
+                single_doc.add_picture(item[5], width=Inches(4.0))
+            except:
+                pass
+    single_doc.save(single_doc_path)
+
+def get_master_file_bytes():
+    if os.path.exists(MASTER_DOCX_PATH):
+        with open(MASTER_DOCX_PATH, "rb") as f:
+            return f.read()
+    return None
+
+def get_single_file_bytes(ma_ca):
+    path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    return None
+
+# ---------------------------------------------------------
+# 4. ĐĂNG NHẬP & PHÂN QUYỀN
 # ---------------------------------------------------------
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
@@ -124,7 +209,7 @@ with st.sidebar:
             user_query = cursor.execute("SELECT username, password, ho_ten, vai_tro, trang_thai FROM tai_khoan WHERE username = ?", (u_input,)).fetchone()
             if user_query:
                 if user_query[4] == "bi_khoa":
-                    st.error("❌ Tài khoản này đã bị Admin khóa!")
+                    st.error("❌ Tài khoản này đã bị khóa!")
                 elif user_query[1] == p_input:
                     st.session_state["user_info"] = {"username": user_query[0], "ho_ten": user_query[2], "vai_tro": user_query[3]}
                     st.success(f"Xin chào: {user_query[2]}")
@@ -142,7 +227,7 @@ with st.sidebar:
             st.rerun()
 
 # ---------------------------------------------------------
-# 4. GIAO DIỆN CHÍNH
+# 5. GIAO DIỆN CHÍNH (GIỮ NGUYÊN BỐ CỤC)
 # ---------------------------------------------------------
 st.title("❄️ QUẢN LÝ & BÁO CÁO VẬN HÀNH KHO / THIẾT BỊ")
 
@@ -163,9 +248,23 @@ else:
 
     tabs = st.tabs(tabs_list)
 
-    # TAB 1: XEM BÁO CÁO
+    # TAB 1: XEM & TẢI BÁO CÁO
     with tabs[0]:
-        st.subheader("📊 Nhật Ký Báo Cáo Ca Trực")
+        st.subheader("📊 Nhật Ký Báo Cáo Ca Trực Tổng Hợp")
+        
+        # Nút tải FILE TỔNG DUY NHẤT liên tục được cập nhật mới nhất
+        master_bytes = get_master_file_bytes()
+        if master_bytes:
+            st.download_button(
+                label="📘 TẢI FILE TỔNG DUY NHẤT (CẬP NHẬT TẤT CẢ CÁC BÁO CÁO + HÌNH ẢNH MỚI NHẤT)",
+                data=master_bytes,
+                file_name="Baocao_Tonghop_Capnhat.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                key="btn_download_master_main"
+            )
+        
+        st.markdown("---")
         df_ca = pd.read_sql_query("SELECT * FROM bao_cao_tong_hop ORDER BY id DESC", conn)
 
         if not df_ca.empty:
@@ -174,24 +273,19 @@ else:
                 with st.expander(f"📌 Mã Ca: {ma_ca} | Ngày: {row_ca['thoi_gian']} | Ca: {row_ca['ca_truc']} | Người báo cáo: {row_ca['nguoi_bao_cao']}"):
                     st.write(f"**Ghi chú chung:** {row_ca['ghi_chu_chung']}")
                     
-                    df_chitiet = pd.read_sql_query("SELECT ten_kho AS 'Tên Kho / Thiết Bị', nhiet_do AS 'Nhiệt Độ (°C)', do_am AS 'Độ Ẩm (%)', san_luong AS 'Sản Lượng (Tấn)', trang_thai_may AS 'Trạng Thái' FROM chi_tiet_kho WHERE ma_ca_truc = ?", conn, params=(ma_ca,))
-                    col_dl1, col_dl2 = st.columns(2)
-                    
-                    csv_data = df_chitiet.to_csv(index=False).encode('utf-8-sig')
-                    col_dl1.download_button("📥 Tải Báo Cáo Excel Ca Này", data=csv_data, file_name=f"BaoCao_{ma_ca}.csv", mime="text/csv", key=f"csv_{ma_ca}")
-
-                    list_anh = cursor.execute("SELECT ten_kho, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ? AND duong_dan_anh != ''", (ma_ca,)).fetchall()
-                    if list_anh:
-                        zip_buffer = io.BytesIO()
-                        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                            for item in list_anh:
-                                if item[1] and os.path.exists(item[1]):
-                                    ext = os.path.splitext(item[1])[1]
-                                    zip_file.write(item[1], arcname=f"{item[0]}{ext}")
-                        col_dl2.download_button("📸 Tải Trọn Bộ Ảnh (.ZIP)", data=zip_buffer.getvalue(), file_name=f"Anh_{ma_ca}.zip", mime="application/zip", key=f"zip_{ma_ca}")
+                    # Nút tải file riêng lẻ của ngày/ca này để tra cứu cũ khi cần
+                    single_bytes = get_single_file_bytes(ma_ca)
+                    if single_bytes:
+                        st.download_button(
+                            label=f"📂 Tải riêng file lịch sử của ca này ({ma_ca})",
+                            data=single_bytes,
+                            file_name=f"BaoCao_LichSu_{ma_ca}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"dl_single_{ma_ca}"
+                        )
 
                     st.markdown("---")
-                    st.write("📷 **BÁO CÁO CHI TIẾT TỪNG KHO / THIẾT BỊ:**")
+                    st.write("📷 **BÁO CÁO CHI TIẾT TỪNG KHO:**")
                     
                     df_full = cursor.execute("SELECT ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,)).fetchall()
                     cols = st.columns(3)
@@ -215,60 +309,87 @@ else:
     with tabs[1]:
         if can_report:
             st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
-            if not ds_kho:
-                st.warning("⚠️ Hiện tại chưa có kho/thiết bị nào trong hệ thống. Vui lòng nhờ Admin thêm kho vào danh mục.")
+            
+            if "submitted_ca" in st.session_state:
+                st.success(f"🔔 **ĐÃ GỬI BÁO CÁO THÀNH CÔNG VÀ ĐÃ CẬP NHẬT VÀO FILE TỔNG! (Mã ca: {st.session_state['submitted_ca']})**")
+                
+                col_btn1, col_btn2 = st.columns(2)
+                
+                # Mở/Tải ngay file tổng đã được tự động nối báo cáo mới
+                m_bytes = get_master_file_bytes()
+                if m_bytes:
+                    col_btn1.download_button(
+                        label="📘 MỞ / TẢI FILE BÁO CÁO TỔNG TẤT CẢ CÁC CA (ĐÃ CẬP NHẬT MỚI NHẤT)",
+                        data=m_bytes,
+                        file_name="Baocao_Tonghop_Capnhat.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary"
+                    )
+                
+                # Nút Quay về trang chủ
+                if col_btn2.button("🏠 QUAY VỀ TRANG CHỦ HỆ THỐNG"):
+                    del st.session_state["submitted_ca"]
+                    st.rerun()
+
             else:
-                with st.form("form_nhap_ca", clear_on_submit=True):
-                    c1, c2, c3 = st.columns(3)
-                    ma_ca = c1.text_input("Mã Ca Trực", value=f"CA-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-                    ca_truc = c2.selectbox("Ca Trực", ["Ca Sáng (06h - 14h)", "Ca Chiều (14h - 22h)", "Ca Đêm (22h - 06h)"])
-                    nguoi_lap = c3.text_input("Người Báo Cáo", value=current_user["ho_ten"], disabled=True)
-                    ghi_chu_chung = st.text_area("Ghi chú chung ca trực")
+                if not ds_kho:
+                    st.warning("⚠️ Chưa có kho nào trong hệ thống.")
+                else:
+                    with st.form("form_nhap_ca"):
+                        c1, c2, c3 = st.columns(3)
+                        ma_ca = c1.text_input("Mã Ca Trực", value=f"CA-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+                        ca_truc = c2.selectbox("Ca Trực", ["Ca Sáng (06h - 14h)", "Ca Chiều (14h - 22h)", "Ca Đêm (22h - 06h)"])
+                        nguoi_lap = c3.text_input("Người Báo Cáo", value=current_user["ho_ten"], disabled=True)
+                        ghi_chu_chung = st.text_area("Ghi chú chung ca trực")
 
-                    st.markdown("---")
-                    st.write(f"📋 **NHẬP BÁO CÁO CHO {len(ds_kho)} KHO / THIẾT BỊ HIỆN CÓ:**")
+                        st.markdown("---")
+                        st.write(f"📋 **NHẬP BÁO CÁO CHO {len(ds_kho)} KHO / THIẾT BỊ HIỆN CÓ:**")
 
-                    kho_inputs = {}
-                    for kho in ds_kho:
-                        with st.container(border=True):
-                            st.markdown(f"### ❄️ {kho}")
-                            col_l, col_r = st.columns([3, 2])
+                        kho_inputs = {}
+                        for kho in ds_kho:
+                            with st.container(border=True):
+                                st.markdown(f"### ❄️ {kho}")
+                                col_l, col_r = st.columns([3, 2])
+                                
+                                with col_l:
+                                    col_a, col_b, col_c = st.columns(3)
+                                    n_do = col_a.number_input(f"Nhiệt độ (°C)", value=-18.0, step=0.1, key=f"nd_{kho}")
+                                    d_am = col_b.number_input(f"Độ ẩm (%)", value=85.0, step=0.5, key=f"da_{kho}")
+                                    s_luong = col_c.number_input(f"Sản lượng (Tấn)", value=0.0, step=0.1, key=f"sl_{kho}")
+                                    t_thai = st.selectbox(f"Trạng thái vận hành", ds_tt if ds_tt else ["Bình thường"], key=f"tt_{kho}")
+
+                                with col_r:
+                                    file_img = st.file_uploader(f"📸 Chụp / Tải ảnh riêng cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+
+                                kho_inputs[kho] = {
+                                    "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
+                                    "trang_thai": t_thai, "file_img": file_img
+                                }
+
+                        if st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC"):
+                            now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                            cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
+                                           (ma_ca, now_str, ca_truc, nguoi_lap, ghi_chu_chung))
                             
-                            with col_l:
-                                col_a, col_b, col_c = st.columns(3)
-                                n_do = col_a.number_input(f"Nhiệt độ (°C)", value=-18.0, step=0.1, key=f"nd_{kho}")
-                                d_am = col_b.number_input(f"Độ ẩm (%)", value=85.0, step=0.5, key=f"da_{kho}")
-                                s_luong = col_c.number_input(f"Sản lượng (Tấn)", value=0.0, step=0.1, key=f"sl_{kho}")
-                                t_thai = st.selectbox(f"Trạng thái vận hành", ds_tt if ds_tt else ["Bình thường"], key=f"tt_{kho}")
+                            for kho, data in kho_inputs.items():
+                                img_path = ""
+                                if data["file_img"]:
+                                    img_path = os.path.join(UPLOAD_DIR, f"{ma_ca}_{kho}_{data['file_img'].name}")
+                                    with open(img_path, "wb") as f:
+                                        f.write(data["file_img"].getbuffer())
 
-                            with col_r:
-                                file_img = st.file_uploader(f"📸 Chụp / Tải ảnh riêng cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+                                cursor.execute('''
+                                    INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], img_path))
 
-                            kho_inputs[kho] = {
-                                "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
-                                "trang_thai": t_thai, "file_img": file_img
-                            }
-
-                    if st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC"):
-                        now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                        cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
-                                       (ma_ca, now_str, ca_truc, nguoi_lap, ghi_chu_chung))
-                        
-                        for kho, data in kho_inputs.items():
-                            img_path = ""
-                            if data["file_img"]:
-                                img_path = os.path.join(UPLOAD_DIR, f"{ma_ca}_{kho}_{data['file_img'].name}")
-                                with open(img_path, "wb") as f:
-                                    f.write(data["file_img"].getbuffer())
-
-                            cursor.execute('''
-                                INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], img_path))
-
-                        conn.commit()
-                        st.success("✅ Đã lưu toàn bộ báo cáo!")
-                        st.rerun()
+                            conn.commit()
+                            
+                            # Tự động ghi nối tiếp báo cáo mới vào FILE TỔNG
+                            append_to_master_docx(ma_ca)
+                            
+                            st.session_state["submitted_ca"] = ma_ca
+                            st.rerun()
         else:
             st.warning("🔒 Tài khoản của bạn là quyền VIEWER (Chỉ xem), không được phép lập báo cáo.")
 
@@ -349,7 +470,7 @@ else:
                             st.success(f"Đã xóa trạng thái '{tt_xoa}'!")
                             st.rerun()
 
-    # TAB 4: ADMIN QUẢN LÝ & XÓA VĨNH VIỄN TÀI KHOẢN
+    # TAB 4: ADMIN QUẢN LÝ TÀI KHOẢN
     if is_admin:
         with tabs[3]:
             st.subheader("👥 Cấp Tài Khoản & Xóa Nhân Viên")
