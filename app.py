@@ -7,7 +7,21 @@ from datetime import datetime
 # ---------------------------------------------------------
 # 1. CẤU HÌNH CƠ SỞ DỮ LIỆU & HỆ THỐNG
 # ---------------------------------------------------------
-st.set_page_config(page_title="Hệ Thống Quản Lý Kho Cấp Đông", page_icon="❄️", layout="wide")
+# CẤU HÌNH TRANG & NHÚNG ICON CHO ĐIỆN THOẠI
+st.set_page_config(
+    page_title="Quản Lý Kho Cấp Đông Mr Hưng",
+    page_icon="icon.png",
+    layout="wide"
+)
+
+# Nhúng manifest để điện thoại nhận Icon ngoài màn hình chính
+st.markdown(
+    """
+    <link rel="manifest" href="https://raw.githubusercontent.com/hungnguyen88budang-ui/Qu-n-L-V-n-H-nh-Kho-C-p-/main/manifest.json">
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/hungnguyen88budang-ui/Qu-n-L-V-n-H-nh-Kho-C-p-/main/icon.png">
+    """,
+    unsafe_allow_html=True
+)
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):

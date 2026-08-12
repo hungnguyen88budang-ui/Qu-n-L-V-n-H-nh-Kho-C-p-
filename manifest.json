@@ -1,0 +1,17 @@
+{
+  "name": "Quản Lý Kho Cấp Đông Mr Hưng",
+  "short_name": "Kho Cấp Đông",
+  "description": "Ứng dụng quản lý vận hành kho cấp đông",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#00f2fe",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/hungnguyen88budang-ui/Qu-n-L-V-n-H-nh-Kho-C-p-/main/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
