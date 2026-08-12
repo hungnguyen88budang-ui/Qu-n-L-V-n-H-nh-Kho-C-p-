@@ -113,7 +113,6 @@ def append_to_master_docx(ma_ca):
     row_ca = cursor.execute("SELECT * FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,)).fetchone()
     chi_tiet = cursor.execute("SELECT ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,)).fetchall()
 
-    # Nếu chưa có file tổng thì tạo mới, nếu có rồi thì mở ra viết nối tiếp vào
     if os.path.exists(MASTER_DOCX_PATH):
         doc = Document(MASTER_DOCX_PATH)
         doc.add_page_break()
@@ -121,12 +120,10 @@ def append_to_master_docx(ma_ca):
         doc = Document()
         title = doc.add_heading("SỔ TAY TỔNG HỢP BÁO CÁO VẬN HÀNH KHO & THIẾT BỊ", level=0)
 
-    # Viết nội dung ca mới vào file tổng
     doc.add_heading(f"📌 BÁO CÁO CA TRỰC: {ma_ca}", level=1)
     doc.add_paragraph(f"⏰ Thời gian: {row_ca[2]} | 🔄 Ca: {row_ca[3]} | 👤 Người báo cáo: {row_ca[4]}")
     doc.add_paragraph(f"📝 Ghi chú chung: {row_ca[5] if row_ca[5] else 'Không có'}")
     
-    # Bảng số liệu
     table = doc.add_table(rows=1, cols=5)
     table.style = 'Table Grid'
     hdr = table.rows[0].cells
@@ -141,7 +138,6 @@ def append_to_master_docx(ma_ca):
         r[0].text, r[1].text, r[2].text, r[3].text, r[4].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4])
 
     doc.add_paragraph("")
-    # Chèn hình ảnh chi tiết
     doc.add_heading("📸 Hình Ảnh Chi Tiết Kèm Theo:", level=2)
     for item in chi_tiet:
         img_path = item[5]
@@ -152,10 +148,8 @@ def append_to_master_docx(ma_ca):
             except:
                 doc.add_paragraph("⚠️ Không thể tải hình ảnh này.")
 
-    # Lưu lại file tổng duy nhất
     doc.save(MASTER_DOCX_PATH)
 
-    # Tạo thêm 1 file riêng theo mã ca để lưu trữ tra cứu lịch sử cũ khi cần
     single_doc_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
     single_doc = Document()
     single_doc.add_heading(f"BÁO CÁO CA TRỰC: {ma_ca}", level=1)
@@ -227,7 +221,7 @@ with st.sidebar:
             st.rerun()
 
 # ---------------------------------------------------------
-# 5. GIAO DIỆN CHÍNH (GIỮ NGUYÊN BỐ CỤC)
+# 5. GIAO DIỆN CHÍNH
 # ---------------------------------------------------------
 st.title("❄️ QUẢN LÝ & BÁO CÁO VẬN HÀNH KHO / THIẾT BỊ")
 
@@ -252,7 +246,6 @@ else:
     with tabs[0]:
         st.subheader("📊 Nhật Ký Báo Cáo Ca Trực Tổng Hợp")
         
-        # Nút tải FILE TỔNG DUY NHẤT liên tục được cập nhật mới nhất
         master_bytes = get_master_file_bytes()
         if master_bytes:
             st.download_button(
@@ -273,7 +266,6 @@ else:
                 with st.expander(f"📌 Mã Ca: {ma_ca} | Ngày: {row_ca['thoi_gian']} | Ca: {row_ca['ca_truc']} | Người báo cáo: {row_ca['nguoi_bao_cao']}"):
                     st.write(f"**Ghi chú chung:** {row_ca['ghi_chu_chung']}")
                     
-                    # Nút tải file riêng lẻ của ngày/ca này để tra cứu cũ khi cần
                     single_bytes = get_single_file_bytes(ma_ca)
                     if single_bytes:
                         st.download_button(
@@ -315,7 +307,6 @@ else:
                 
                 col_btn1, col_btn2 = st.columns(2)
                 
-                # Mở/Tải ngay file tổng đã được tự động nối báo cáo mới
                 m_bytes = get_master_file_bytes()
                 if m_bytes:
                     col_btn1.download_button(
@@ -326,7 +317,6 @@ else:
                         type="primary"
                     )
                 
-                # Nút Quay về trang chủ
                 if col_btn2.button("🏠 QUAY VỀ TRANG CHỦ HỆ THỐNG"):
                     del st.session_state["submitted_ca"]
                     st.rerun()
@@ -385,7 +375,6 @@ else:
 
                             conn.commit()
                             
-                            # Tự động ghi nối tiếp báo cáo mới vào FILE TỔNG
                             append_to_master_docx(ma_ca)
                             
                             st.session_state["submitted_ca"] = ma_ca
@@ -419,16 +408,16 @@ else:
                 with st.container(border=True):
                     st.markdown("##### ✏️ Đổi Tên Kho")
                     kho_doi = st.selectbox("Chọn kho cần đổi tên", ds_kho if ds_kho else ["Chưa có"], key="sel_doi_kho")
-                    ten_kho_renamed = st.text_input("Tên mới", value=kho_doi if ds_kho else "", key="txt_ren_kho")
+                    ten_kho_renamed = st.text_input("Nhập tên kho mới", key="txt_ren_kho")
                     if st.button("Cập Nhật Tên Kho", key="btn_ren_kho"):
-                        if ds_kho and ten_kho_renamed.strip() and ten_kho_renamed != kho_doi:
+                        if ds_kho and ten_kho_renamed.strip() and ten_kho_renamed.strip() != kho_doi:
                             try:
                                 cursor.execute("UPDATE danh_muc_kho SET ten_kho = ? WHERE ten_kho = ?", (ten_kho_renamed.strip(), kho_doi))
                                 conn.commit()
                                 st.success("Đã đổi tên kho thành công!")
                                 st.rerun()
-                            except:
-                                st.error("Tên mới trùng với kho khác!")
+                            except Exception as e:
+                                st.error(f"Lỗi đổi tên kho: {e}")
 
             with c_k3:
                 with st.container(border=True):
