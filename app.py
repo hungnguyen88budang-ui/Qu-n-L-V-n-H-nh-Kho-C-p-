@@ -47,10 +47,9 @@ UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-conn = sqlite3.connect("kho_cap_dong_v6.db", check_same_thread=False)
+conn = sqlite3.connect("kho_cap_dong_v7.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Bảng Báo cáo tổng hợp
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS bao_cao_tong_hop (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +61,6 @@ CREATE TABLE IF NOT EXISTS bao_cao_tong_hop (
 )
 ''')
 
-# Bảng Chi tiết Kho/Thiết bị
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS chi_tiet_kho (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,19 +74,16 @@ CREATE TABLE IF NOT EXISTS chi_tiet_kho (
 )
 ''')
 
-# Bảng Danh mục Kho / Thiết bị (Cho phép thêm/sửa/xóa tùy ý)
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_kho (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_kho TEXT UNIQUE)')
 danh_sach_kho_ban_dau = [f"Cụm Kho Số {i}" for i in range(1, 8)] + ["Phòng Máy Nén", "Trạm Biến Áp"]
 for kho in danh_sach_kho_ban_dau:
     cursor.execute('INSERT OR IGNORE INTO danh_muc_kho (ten_kho) VALUES (?)', (kho,))
 
-# Bảng Danh mục Trạng thái
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_trang_thai (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_trang_thai TEXT UNIQUE)')
 ds_tt_ban_dau = ["Bình thường", "Cảnh báo nhẹ", "Sự cố - Cần sửa chữa", "Bảo trì định kỳ"]
 for tt in ds_tt_ban_dau:
     cursor.execute('INSERT OR IGNORE INTO danh_muc_trang_thai (ten_trang_thai) VALUES (?)', (tt,))
 
-# Bảng Tài khoản
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tai_khoan (
     username TEXT PRIMARY KEY,
@@ -101,10 +96,11 @@ CREATE TABLE IF NOT EXISTS tai_khoan (
 
 cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("admin", "admin123", "Quản Trị Viên Hùng", "admin", "hoat_dong")')
 cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("nv01", "123", "Nguyễn Văn A", "nhanvien", "hoat_dong")')
+cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("xem01", "123", "Ban Giám Đốc", "viewer", "hoat_dong")')
 conn.commit()
 
 # ---------------------------------------------------------
-# 3. ĐĂNG NHẬP
+# 3. ĐĂNG NHẬP & XỬ LÝ PHÂN QUYỀN
 # ---------------------------------------------------------
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
@@ -120,7 +116,7 @@ with st.sidebar:
             user_query = cursor.execute("SELECT username, password, ho_ten, vai_tro, trang_thai FROM tai_khoan WHERE username = ?", (u_input,)).fetchone()
             if user_query:
                 if user_query[4] == "bi_khoa":
-                    st.error("❌ Tài khoản bị khóa!")
+                    st.error("❌ Tài khoản này đã bị Admin khóa/thu hồi!")
                 elif user_query[1] == p_input:
                     st.session_state["user_info"] = {"username": user_query[0], "ho_ten": user_query[2], "vai_tro": user_query[3]}
                     st.success(f"Xin chào: {user_query[2]}")
@@ -147,20 +143,19 @@ if st.session_state["user_info"] is None:
 else:
     current_user = st.session_state["user_info"]
     is_admin = (current_user["vai_tro"] == "admin")
+    can_report = current_user["vai_tro"] in ["admin", "nhanvien"]
 
     ds_kho = [row[0] for row in cursor.execute("SELECT ten_kho FROM danh_muc_kho ORDER BY id ASC").fetchall()]
     ds_tt = [row[0] for row in cursor.execute("SELECT ten_trang_thai FROM danh_muc_trang_thai ORDER BY id ASC").fetchall()]
 
     tabs_list = ["📊 Xem & Tải Báo Cáo", "📝 Lập Báo Cáo Ca Trực"]
     if is_admin:
-        tabs_list.append("⚙️ Admin - Cấu Hình Kho & Danh Mục")
-        tabs_list.append("👥 Admin - Quản Lý Tài Khoản")
+        tabs_list.append("⚙️ Admin - Tùy Chỉnh & Đổi Tên Kho")
+        tabs_list.append("👥 Admin - Quản Lý & Phân Quyền Tài Khoản")
 
     tabs = st.tabs(tabs_list)
 
-    # ---------------------------------------------------------
-    # TAB 1: XEM BÁO CÁO (HÌNH ẢNH CỐ ĐỊNH THEO TỪNG KHO 1-1)
-    # ---------------------------------------------------------
+    # TAB 1: XEM BÁO CÁO
     with tabs[0]:
         st.subheader("📊 Nhật Ký Báo Cáo Ca Trực")
         df_ca = pd.read_sql_query("SELECT * FROM bao_cao_tong_hop ORDER BY id DESC", conn)
@@ -171,7 +166,6 @@ else:
                 with st.expander(f"📌 Mã Ca: {ma_ca} | Ngày: {row_ca['thoi_gian']} | Ca: {row_ca['ca_truc']} | Người báo cáo: {row_ca['nguoi_bao_cao']}"):
                     st.write(f"**Ghi chú chung:** {row_ca['ghi_chu_chung']}")
                     
-                    # Nút xuất file Excel & ZIP ảnh
                     df_chitiet = pd.read_sql_query("SELECT ten_kho AS 'Tên Kho / Thiết Bị', nhiet_do AS 'Nhiệt Độ (°C)', do_am AS 'Độ Ẩm (%)', san_luong AS 'Sản Lượng (Tấn)', trang_thai_may AS 'Trạng Thái' FROM chi_tiet_kho WHERE ma_ca_truc = ?", conn, params=(ma_ca,))
                     col_dl1, col_dl2 = st.columns(2)
                     
@@ -189,12 +183,10 @@ else:
                         col_dl2.download_button("📸 Tải Trọn Bộ Ảnh (.ZIP)", data=zip_buffer.getvalue(), file_name=f"Anh_{ma_ca}.zip", mime="application/zip", key=f"zip_{ma_ca}")
 
                     st.markdown("---")
-                    st.write("📷 **ĐIỂM DANH HÌNH ẢNH THEO TỪNG CỤM KHO / THIẾT BỊ:**")
+                    st.write("📷 **ĐIỂM DANH HÌNH ẢNH CỐ ĐỊNH TỪNG KHO / THIẾT BỊ:**")
                     
-                    # Hiển thị dạng Lưới Card: Số liệu + Hình ảnh đi kèm đúng Kho đó
                     df_full = cursor.execute("SELECT ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,)).fetchall()
-                    
-                    cols = st.columns(3) # Hiển thị 3 kho trên 1 hàng
+                    cols = st.columns(3)
                     for idx_item, item in enumerate(df_full):
                         with cols[idx_item % 3]:
                             with st.container(border=True):
@@ -207,134 +199,148 @@ else:
                                 if item[5] and os.path.exists(item[5]):
                                     st.image(item[5], use_column_width=True)
                                 else:
-                                    st.info("Không có ảnh đính kèm")
+                                    st.info("Không có ảnh")
         else:
             st.info("Chưa có báo cáo ca trực nào.")
 
-    # ---------------------------------------------------------
-    # TAB 2: LẬP BÁO CÁO CA TRỰC (KHUNG CHỤP ẢNH ĐI KÈM TỪNG KHO)
-    # ---------------------------------------------------------
+    # TAB 2: LẬP BÁO CÁO (KIỂM TRA QUYỀN)
     with tabs[1]:
-        st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
-        with st.form("form_nhap_ca", clear_on_submit=True):
-            c1, c2, c3 = st.columns(3)
-            ma_ca = c1.text_input("Mã Ca Trực", value=f"CA-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
-            ca_truc = c2.selectbox("Ca Trực", ["Ca Sáng (06h - 14h)", "Ca Chiều (14h - 22h)", "Ca Đêm (22h - 06h)"])
-            nguoi_lap = c3.text_input("Người Báo Cáo", value=current_user["ho_ten"], disabled=True)
-            ghi_chu_chung = st.text_area("Ghi chú chung ca trực")
+        if can_report:
+            st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
+            with st.form("form_nhap_ca", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                ma_ca = c1.text_input("Mã Ca Trực", value=f"CA-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+                ca_truc = c2.selectbox("Ca Trực", ["Ca Sáng (06h - 14h)", "Ca Chiều (14h - 22h)", "Ca Đêm (22h - 06h)"])
+                nguoi_lap = c3.text_input("Người Báo Cáo", value=current_user["ho_ten"], disabled=True)
+                ghi_chu_chung = st.text_area("Ghi chú chung ca trực")
 
-            st.markdown("---")
-            st.write("📋 **NHẬP BÁO CÁO CHI TIẾT THEO TỪNG CỤM KHO / THIẾT BỊ:**")
+                st.markdown("---")
+                st.write("📋 **NHẬP BÁO CÁO TỪNG KHO / THIẾT BỊ:**")
 
-            kho_inputs = {}
-            for kho in ds_kho:
-                with st.container(border=True):
-                    st.markdown(f"### ❄️ {kho}")
-                    col_l, col_r = st.columns([3, 2])
+                kho_inputs = {}
+                for kho in ds_kho:
+                    with st.container(border=True):
+                        st.markdown(f"### ❄️ {kho}")
+                        col_l, col_r = st.columns([3, 2])
+                        
+                        with col_l:
+                            col_a, col_b, col_c = st.columns(3)
+                            n_do = col_a.number_input(f"Nhiệt độ (°C)", value=-18.0, step=0.1, key=f"nd_{kho}")
+                            d_am = col_b.number_input(f"Độ ẩm (%)", value=85.0, step=0.5, key=f"da_{kho}")
+                            s_luong = col_c.number_input(f"Sản lượng (Tấn)", value=0.0, step=0.1, key=f"sl_{kho}")
+                            t_thai = st.selectbox(f"Trạng thái vận hành", ds_tt if ds_tt else ["Bình thường"], key=f"tt_{kho}")
+
+                        with col_r:
+                            file_img = st.file_uploader(f"📸 Chụp / Tải ảnh riêng cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+
+                        kho_inputs[kho] = {
+                            "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
+                            "trang_thai": t_thai, "file_img": file_img
+                        }
+
+                if st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC"):
+                    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
+                                   (ma_ca, now_str, ca_truc, nguoi_lap, ghi_chu_chung))
                     
-                    with col_l:
-                        col_a, col_b, col_c = st.columns(3)
-                        n_do = col_a.number_input(f"Nhiệt độ (°C)", value=-18.0, step=0.1, key=f"nd_{kho}")
-                        d_am = col_b.number_input(f"Độ ẩm (%)", value=85.0, step=0.5, key=f"da_{kho}")
-                        s_luong = col_c.number_input(f"Sản lượng (Tấn)", value=0.0, step=0.1, key=f"sl_{kho}")
-                        t_thai = st.selectbox(f"Trạng thái vận hành", ds_tt if ds_tt else ["Bình thường"], key=f"tt_{kho}")
+                    for kho, data in kho_inputs.items():
+                        img_path = ""
+                        if data["file_img"]:
+                            img_path = os.path.join(UPLOAD_DIR, f"{ma_ca}_{kho}_{data['file_img'].name}")
+                            with open(img_path, "wb") as f:
+                                f.write(data["file_img"].getbuffer())
 
-                    with col_r:
-                        file_img = st.file_uploader(f"📸 Chụp / Tải ảnh riêng cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+                        cursor.execute('''
+                            INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], img_path))
 
-                    kho_inputs[kho] = {
-                        "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
-                        "trang_thai": t_thai, "file_img": file_img
-                    }
+                    conn.commit()
+                    st.success("✅ Đã lưu toàn bộ báo cáo!")
+                    st.rerun()
+        else:
+            st.warning("🔒 Tài khoản của bạn là quyền VIEWER (Chỉ xem), không được phép lập báo cáo.")
 
-            if st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC"):
-                now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
-                               (ma_ca, now_str, ca_truc, nguoi_lap, ghi_chu_chung))
-                
-                for kho, data in kho_inputs.items():
-                    img_path = ""
-                    if data["file_img"]:
-                        img_path = os.path.join(UPLOAD_DIR, f"{ma_ca}_{kho}_{data['file_img'].name}")
-                        with open(img_path, "wb") as f:
-                            f.write(data["file_img"].getbuffer())
-
-                    cursor.execute('''
-                        INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, duong_dan_anh)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], img_path))
-
-                conn.commit()
-                st.success("✅ Đã lưu toàn bộ báo cáo và hình ảnh chính xác theo từng kho!")
-                st.rerun()
-
-    # ---------------------------------------------------------
-    # TAB 3: ADMIN CẤU HÌNH TÙY CHỈNH TÊN KHO & TRẠNG THÁI
-    # ---------------------------------------------------------
+    # TAB 3: ADMIN TÙY CHỈNH & ĐỔI TÊN KHO
     if is_admin:
         with tabs[2]:
-            st.subheader("⚙️ Quản Lý & Tùy Chỉnh Danh Mục Kho / Thiết Bị")
+            st.subheader("⚙️ Quản Lý Danh Mục Kho & Thiết Bị")
             
+            # 1. ĐỔI TÊN KHO (MỚI)
+            with st.container(border=True):
+                st.markdown("##### ✏️ ĐỔI TÊN KHO / THIẾT BỊ CÓ SẴN")
+                c_sel, c_new, c_btn = st.columns([2, 2, 1])
+                kho_doi_ten = c_sel.selectbox("Chọn kho cần đổi tên", ds_kho if ds_kho else ["Chưa có"])
+                ten_kho_moi_cap_nhat = c_new.text_input("Nhập tên mới muốn đổi", value=kho_doi_ten)
+                if c_btn.button("💾 Cập Nhật Tên"):
+                    if ten_kho_moi_cap_nhat.strip() and ten_kho_moi_cap_nhat != kho_doi_ten:
+                        try:
+                            cursor.execute("UPDATE danh_muc_kho SET ten_kho = ? WHERE ten_kho = ?", (ten_kho_moi_cap_nhat.strip(), kho_doi_ten))
+                            conn.commit()
+                            st.success(f"Đã đổi tên '{kho_doi_ten}' thành '{ten_kho_moi_cap_nhat.strip()}'!")
+                            st.rerun()
+                        except:
+                            st.error("Tên mới này trùng với một kho khác đã có!")
+
             col_k1, col_k2 = st.columns(2)
             with col_k1:
-                st.markdown("##### ➕ Thêm Cụm Kho / Thiết Bị Mới")
-                ten_kho_moi = st.text_input("Nhập tên cụm kho / thiết bị mới (Ví dụ: Kho Cấp Đông 8, Máy Nén C...)")
-                if st.button("Thêm Vào Hệ Thống"):
-                    if ten_kho_moi.strip():
-                        try:
-                            cursor.execute("INSERT INTO danh_muc_kho (ten_kho) VALUES (?)", (ten_kho_moi.strip(),))
-                            conn.commit()
-                            st.success(f"Đã thêm: {ten_kho_moi}")
-                            st.rerun()
-                        except:
-                            st.error("Tên kho/thiết bị này đã tồn tại!")
+                with st.container(border=True):
+                    st.markdown("##### ➕ Thêm Cụm Kho / Thiết Bị Mới")
+                    ten_kho_moi = st.text_input("Nhập tên kho / thiết bị mới")
+                    if st.button("Thêm Vào Hệ Thống"):
+                        if ten_kho_moi.strip():
+                            try:
+                                cursor.execute("INSERT INTO danh_muc_kho (ten_kho) VALUES (?)", (ten_kho_moi.strip(),))
+                                conn.commit()
+                                st.success(f"Đã thêm: {ten_kho_moi}")
+                                st.rerun()
+                            except:
+                                st.error("Tên kho này đã có!")
 
             with col_k2:
-                st.markdown("##### ❌ Xóa Cụm Kho / Thiết Bị")
-                kho_can_xoa = st.selectbox("Chọn cụm kho / thiết bị cần xóa", ds_kho if ds_kho else ["Chưa có"])
-                if st.button("Xóa Kho Này"):
-                    cursor.execute("DELETE FROM danh_muc_kho WHERE ten_kho = ?", (kho_can_xoa,))
-                    conn.commit()
-                    st.success(f"Đã xóa thành công: {kho_can_xoa}")
-                    st.rerun()
+                with st.container(border=True):
+                    st.markdown("##### ❌ Xóa Cụm Kho / Thiết Bị")
+                    kho_can_xoa = st.selectbox("Chọn kho cần xóa", ds_kho if ds_kho else ["Chưa có"])
+                    if st.button("Xóa Kho Này"):
+                        cursor.execute("DELETE FROM danh_muc_kho WHERE ten_kho = ?", (kho_can_xoa,))
+                        conn.commit()
+                        st.success(f"Đã xóa: {kho_can_xoa}")
+                        st.rerun()
 
-            st.markdown("---")
-            st.subheader("🛠️ Tùy Chỉnh Danh Sách Trạng Thái Vận Hành")
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                tt_moi = st.text_input("Thêm trạng thái mới (Ví dụ: Rò rỉ Gas, Mất điện...)")
-                if st.button("Thêm Trạng Thái"):
-                    if tt_moi.strip():
-                        try:
-                            cursor.execute("INSERT INTO danh_muc_trang_thai (ten_trang_thai) VALUES (?)", (tt_moi.strip(),))
-                            conn.commit()
-                            st.success("Đã thêm trạng thái mới!")
-                            st.rerun()
-                        except:
-                            st.error("Trạng thái này đã có!")
-
-            with col_t2:
-                tt_xoa = st.selectbox("Chọn trạng thái cần xóa", ds_tt if ds_tt else ["Chưa có"])
-                if st.button("Xóa Trạng Thái Này"):
-                    cursor.execute("DELETE FROM danh_muc_trang_thai WHERE ten_trang_thai = ?", (tt_xoa,))
-                    conn.commit()
-                    st.success("Đã xóa trạng thái!")
-                    st.rerun()
-
-    # ---------------------------------------------------------
-    # TAB 4: ADMIN QUẢN LÝ TÀI KHOẢN
-    # ---------------------------------------------------------
+    # TAB 4: ADMIN PHÂN QUYỀN & QUẢN LÝ TÀI KHOẢN
     if is_admin:
         with tabs[3]:
-            st.subheader("👥 Quản Lý & Phân Quyền Tài Khoản")
-            df_users = pd.read_sql_query("SELECT username, ho_ten, vai_tro, trang_thai FROM tai_khoan", conn)
+            st.subheader("👥 Cấp Tài Khoản & Phân Quyền Nhân Viên")
+            
+            # Form tạo tài khoản mới
+            with st.form("form_tao_tk"):
+                st.markdown("##### ➕ Tạo tài khoản mới cho nhân viên / quản lý")
+                c_u, c_p, c_n, c_r = st.columns(4)
+                new_u = c_u.text_input("Tên Đăng Nhập")
+                new_p = c_p.text_input("Mật Khẩu")
+                new_n = c_n.text_input("Họ Và Tên")
+                new_r = c_r.selectbox("Phân Quyền", ["nhanvien", "viewer", "admin"])
+                
+                if st.form_submit_button("TẠO TÀI KHOẢN"):
+                    if new_u and new_p and new_n:
+                        try:
+                            cursor.execute("INSERT INTO tai_khoan VALUES (?, ?, ?, ?, 'hoat_dong')", (new_u, new_p, new_n, new_r))
+                            conn.commit()
+                            st.success(f"Đã tạo tài khoản thành công cho {new_n} ({new_r})!")
+                            st.rerun()
+                        except:
+                            st.error("Tên đăng nhập này đã có người sử dụng!")
+
+            st.markdown("---")
+            st.subheader("🔒 Danh Sách & Khóa / Thu Hồi Tài Khoản")
+            df_users = pd.read_sql_query("SELECT username AS 'Tên ĐN', ho_ten AS 'Họ Tên', vai_tro AS 'Quyền', trang_thai AS 'Trạng Thái' FROM tai_khoan", conn)
             st.dataframe(df_users, use_container_width=True)
             
             col_usr, col_act = st.columns(2)
-            usr_target = col_usr.selectbox("Chọn tài khoản cần thao tác", df_users['username'].tolist())
+            usr_target = col_usr.selectbox("Chọn tài khoản cần thao tác", df_users['Tên ĐN'].tolist())
             
             if usr_target != "admin":
-                if col_act.button("🚫 KHÓA TÀI KHOẢN NÀY"):
+                if col_act.button("🚫 KHÓA / THU HỒI TÀI KHOẢN NÀY"):
                     cursor.execute("UPDATE tai_khoan SET trang_thai = 'bi_khoa' WHERE username = ?", (usr_target,))
                     conn.commit()
                     st.success(f"Đã khóa tài khoản {usr_target}!")
