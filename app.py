@@ -1,3 +1,4 @@
+
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -41,13 +42,13 @@ if icon_link:
     )
 
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU (TẠO DATABASE V9 MỚI)
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-conn = sqlite3.connect("kho_cap_dong_v8.db", check_same_thread=False)
+conn = sqlite3.connect("kho_cap_dong_v9.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''
@@ -210,7 +211,7 @@ else:
         else:
             st.info("Chưa có báo cáo ca trực nào.")
 
-    # TAB 2: LẬP BÁO CÁO (CHỈ HIỂN THỊ CÁC KHO ĐANG CÓ TRONG DANH MỤC)
+    # TAB 2: LẬP BÁO CÁO
     with tabs[1]:
         if can_report:
             st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
@@ -276,7 +277,6 @@ else:
         with tabs[2]:
             st.subheader("⚙️ Quản Lý Danh Mục Kho & Trạng Thái Vận Hành")
             
-            # --- TÙY CHỈNH KHO ---
             st.markdown("### 🏬 1. Tùy Chỉnh Kho / Thiết Bị")
             c_k1, c_k2, c_k3 = st.columns(3)
             
@@ -321,7 +321,6 @@ else:
                             st.rerun()
 
             st.markdown("---")
-            # --- TÙY CHỈNH TRẠNG THÁI ---
             st.markdown("### 🔴 2. Tùy Chỉnh Danh Mục Trạng Thái Vận Hành")
             c_t1, c_t2 = st.columns(2)
             
