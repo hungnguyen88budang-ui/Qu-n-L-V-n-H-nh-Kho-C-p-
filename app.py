@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 import base64
 
-# --- CẤU HÌNH TRANG & ICON ---
+# --- 1. CẤU HÌNH TRANG & NHÚNG ICON CHO ĐIỆN THOẠI ---
 def get_base64_of_bin_file(bin_file):
     try:
         with open(bin_file, 'rb') as f:
@@ -18,7 +18,7 @@ icon_base64 = get_base64_of_bin_file('icon.png')
 icon_link = f'data:image/png;base64,{icon_base64}' if icon_base64 else ''
 
 st.set_page_config(
-    page_title="Quản Lý Kho Cấp Đông Mr Hưng",
+    page_title="Quản Lý Kho Cấp Đông",
     page_icon="icon.png" if os.path.exists("icon.png") else "❄️",
     layout="wide"
 )
@@ -36,7 +36,7 @@ if icon_link:
         unsafe_allow_html=True
     )
 
-# --- KHỞI TẠO CƠ SỞ DỮ LIỆU ---
+# --- 2. KHỞI TẠO CƠ SỞ DỮ LIỆU ---
 conn = sqlite3.connect('kho_cap_dong.db', check_same_thread=False)
 c = conn.cursor()
 
@@ -46,20 +46,20 @@ c.execute('''
         username TEXT PRIMARY KEY,
         password TEXT,
         fullname TEXT,
-        role TEXT, -- 'admin' hoặc 'staff'
-        can_report INTEGER DEFAULT 1, -- Quyền gửi báo cáo
-        can_view_history INTEGER DEFAULT 1, -- Quyền xem lịch sử
-        can_edit INTEGER DEFAULT 0, -- Quyền sửa
-        can_delete INTEGER DEFAULT 0 -- Quyền xóa
+        role TEXT,
+        can_report INTEGER DEFAULT 1,
+        can_view_history INTEGER DEFAULT 1,
+        can_edit INTEGER DEFAULT 0,
+        can_delete INTEGER DEFAULT 0
     )
 ''')
 
-# Bảng kho hàng
+# Bảng kho hàng mặc định
 c.execute('''
     CREATE TABLE IF NOT EXISTS inventory (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT,
-        type TEXT, -- 'Nhập' hoặc 'Xuất'
+        type TEXT,
         item_name TEXT,
         quantity REAL,
         unit TEXT,
@@ -68,7 +68,7 @@ c.execute('''
     )
 ''')
 
-# Tạo tài khoản Admin mặc định nếu chưa có
+# Tạo tài khoản Admin mặc định
 c.execute("SELECT * FROM users WHERE username = 'admin'")
 if not c.fetchone():
     c.execute('''
@@ -77,7 +77,7 @@ if not c.fetchone():
     ''')
 conn.commit()
 
-# --- XỬ LÝ ĐĂNG NHẬP ---
+# --- 3. ĐĂNG NHẬP HỆ THỐNG ---
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
@@ -105,49 +105,45 @@ if st.session_state['user'] is None:
                 st.rerun()
             else:
                 st.error("Tên đăng nhập hoặc mật khẩu không chính xác!")
-    st.info("💡 Tài khoản mặc định của Anh Hưng: Tên đăng nhập: **admin** | Mật khẩu: **123456**")
+    st.info("💡 Mặc định Admin: Tên đăng nhập: **admin** | Mật khẩu: **123456**")
     st.stop()
 
-# --- GIAO DIỆN CHÍNH SAU KHU ĐĂNG NHẬP ---
+# --- 4. BỐ CỤC CHÍNH (GIỮ NGUYÊN BỐ CỤC BAN ĐẦU) ---
 user = st.session_state['user']
 
-# Thanh bên (Sidebar)
-st.sidebar.title(f"👤 {user['fullname']}")
-if user['role'] == 'admin':
-    st.sidebar.caption("👑 Tài khoản Admin (Toàn quyền)")
-else:
-    st.sidebar.caption("📋 Tài khoản Nhân viên")
+# Thanh bên Sidebar
+st.sidebar.title("❄️ KHO CẤP ĐÔNG")
+st.sidebar.write(f"👤 **{user['fullname']}** ({'Admin' if user['role']=='admin' else 'Nhân viên'})")
 
-# Menu điều hướng tùy theo quyền
-menu_options = []
+menu = []
 if user['can_report']:
-    menu_options.append("📝 Gửi Báo Cáo Nhập/Xuất")
+    menu.append("Gửi Báo Cáo / Nhập Xuất")
 if user['can_view_history']:
-    menu_options.append("📜 Lịch Sử Báo Cáo")
+    menu.append("Xem Lịch Sử Báo Cáo")
 if user['role'] == 'admin':
-    menu_options.append("👥 Quản Lý Phân Quyền Nhân Viên")
+    menu.append("Quản Lý Phân Quyền Nhân Viên")
 
-choice = st.sidebar.radio("CHỨC NĂNG", menu_options)
+choice = st.sidebar.selectbox("Điều Hướng Chức Năng", menu)
 
 if st.sidebar.button("Đăng Xuất"):
     st.session_state['user'] = None
     st.rerun()
 
-# --- CHỨC NĂNG 1: GỬI BÁO CÁO ---
-if choice == "📝 Gửi Báo Cáo Nhập/Xuất":
-    st.header("📝 BÁO CÁO NHẬP / XUẤT KHO")
+# --- BỐ CỤC BAN ĐẦU 1: GỬI BÁO CÁO ---
+if choice == "Gửi Báo Cáo / Nhập Xuất":
+    st.title("📝 GỬI BÁO CÁO KHO CẤP ĐÔNG")
     
     with st.form("report_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            report_type = st.selectbox("Loại báo cáo", ["Nhập kho", "Xuất kho"])
+            report_type = st.selectbox("Loại thao tác", ["Nhập kho", "Xuất kho"])
             item_name = st.text_input("Tên mặt hàng / Lô hàng").strip()
         with col2:
             quantity = st.number_input("Số lượng", min_value=0.1, step=1.0)
             unit = st.selectbox("Đơn vị tính", ["Tấn", "Kg", "Thùng", "Khay", "Bao"])
         
-        note = st.text_area("Ghi chú thêm (nếu có)")
-        submitted = st.form_submit_button("📤 Gửi Báo Cáo")
+        note = st.text_area("Ghi chú")
+        submitted = st.form_submit_button("Gửi Báo Cáo")
         
         if submitted:
             if not item_name:
@@ -159,76 +155,73 @@ if choice == "📝 Gửi Báo Cáo Nhập/Xuất":
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (now, report_type, item_name, quantity, unit, user['fullname'], note))
                 conn.commit()
-                st.success(f"✅ Đã gửi báo cáo {report_type} thành công!")
+                st.success("✅ Đã ghi nhận báo cáo thành công!")
 
-# --- CHỨC NĂNG 2: XEM LỊCH SỬ BÁO CÁO ---
-elif choice == "📜 Lịch Sử Báo Cáo":
-    st.header("📜 LỊCH SỬ BÁO CÁO KHO")
+# --- BỐ CỤC BAN ĐẦU 2: XEM LỊCH SỬ ---
+elif choice == "Xem Lịch Sử Báo Cáo":
+    st.title("📜 LỊCH SỬ BÁO CÁO KHO")
     
-    df = pd.read_sql_query("SELECT id, date AS 'Thời Gian', type AS 'Loại', item_name AS 'Tên Tệp/Mặt Hàng', quantity AS 'Số Lượng', unit AS 'Đơn Vị', created_by AS 'Người Báo Cáo', note AS 'Ghi Chú' FROM inventory ORDER BY id DESC", conn)
+    df = pd.read_sql_query("SELECT id, date AS 'Thời Gian', type AS 'Loại', item_name AS 'Tên Mặt Hàng', quantity AS 'Số Lượng', unit AS 'Đơn Vị', created_by AS 'Người Báo Cáo', note AS 'Ghi Chú' FROM inventory ORDER BY id DESC", conn)
     
     if df.empty:
-        st.info("Chưa có lịch sử báo cáo nào.")
+        st.info("Chưa có dữ liệu lịch sử.")
     else:
         st.dataframe(df.drop(columns=['id']), use_container_width=True)
         
-        # CHỈ ADMIN HOẶC NGƯỜI ĐƯỢC CẤP QUYỀN MỚI THẤY NÚT XÓA
         if user['can_delete']:
-            st.subheader("⚠️ Quản lý xóa báo cáo (Quyền Đặc Biệt)")
-            delete_id = st.selectbox("Chọn ID dòng cần xóa", df['id'].tolist())
-            if st.button("🗑️ Xóa dòng này"):
-                c.execute("DELETE FROM inventory WHERE id=?", (delete_id,))
+            st.write("---")
+            st.subheader("🗑️ Xóa bản ghi (Dành riêng cho Admin)")
+            del_id = st.selectbox("Chọn dòng ID cần xóa", df['id'].tolist())
+            if st.button("Xóa Dòng Đã Chọn"):
+                c.execute("DELETE FROM inventory WHERE id=?", (del_id,))
                 conn.commit()
-                st.success("Đã xóa báo cáo!")
+                st.success("Đã xóa bản ghi thành công!")
                 st.rerun()
 
-# --- CHỨC NĂNG 3: QUẢN LÝ PHÂN QUYỀN (CHỈ ADMIN) ---
-elif choice == "👥 Quản Lý Phân Quyền Nhân Viên":
-    st.header("👥 QUẢN LÝ TÀI KHOẢN & CẤP QUYỀN NHÂN VIÊN")
+# --- TÍNH NĂNG MỚI BỔ SUNG: QUẢN LÝ PHÂN QUYỀN (CHỈ ADMIN) ---
+elif choice == "Quản Lý Phân Quyền Nhân Viên":
+    st.title("👥 QUẢN LÝ TÀI KHOẢN & PHÂN QUYỀN")
     
-    tab1, tab2 = st.tabs(["➕ Thêm Nhân Viên Mới", "⚙️ Chỉnh Sửa Quyền Hạn"])
+    tab1, tab2 = st.tabs(["➕ Thêm Nhân Viên", "⚙️ Danh Sách & Cắt Quyền"])
     
     with tab1:
-        st.subheader("Tạo tài khoản mới cho nhân viên")
+        st.subheader("Tạo tài khoản cho nhân viên")
         with st.form("add_user_form", clear_on_submit=True):
-            new_username = st.text_input("Tên đăng nhập (viết liền không dấu, ví dụ: nam, tuan)").strip().lower()
+            new_username = st.text_input("Tên đăng nhập (viết liền không dấu)").strip().lower()
             new_password = st.text_input("Mật khẩu", type="password").strip()
-            new_fullname = st.text_input("Họ và tên nhân viên (ví dụ: Nguyễn Văn Nam)").strip()
+            new_fullname = st.text_input("Tên nhân viên").strip()
             
-            st.write("📌 **Tích chọn cấp quyền cho nhân viên này:**")
-            p_report = st.checkbox("Quyền gửi báo cáo Nhập/Xuất", value=True)
-            p_history = st.checkbox("Quyền xem lịch sử báo cáo", value=True)
-            p_edit = st.checkbox("Quyền chỉnh sửa dữ liệu", value=False)
+            st.write("📌 **Tích chọn cấp quyền:**")
+            p_report = st.checkbox("Quyền gửi báo cáo", value=True)
+            p_history = st.checkbox("Quyền xem lịch sử", value=True)
             p_delete = st.checkbox("Quyền xóa dữ liệu", value=False)
             
-            submit_user = st.form_submit_button("Thêm Nhân Viên")
+            submit_user = st.form_submit_button("Tạo Tài Khoản")
             if submit_user:
                 if not new_username or not new_password or not new_fullname:
-                    st.error("Vui lòng nhập đầy đủ thông tin!")
+                    st.error("Vui lòng điền đủ thông tin!")
                 else:
                     try:
                         c.execute('''
-                            INSERT INTO users (username, password, fullname, role, can_report, can_view_history, can_edit, can_delete)
-                            VALUES (?, ?, ?, 'staff', ?, ?, ?, ?)
-                        ''', (new_username, new_password, new_fullname, int(p_report), int(p_history), int(p_edit), int(p_delete)))
+                            INSERT INTO users (username, password, fullname, role, can_report, can_view_history, can_delete)
+                            VALUES (?, ?, ?, 'staff', ?, ?, ?)
+                        ''', (new_username, new_password, new_fullname, int(p_report), int(p_history), int(p_delete)))
                         conn.commit()
-                        st.success(f"✅ Đã tạo tài khoản cho nhân viên {new_fullname} thành công!")
+                        st.success(f"✅ Đã tạo tài khoản cho {new_fullname}!")
                     except:
-                        st.error("Tên đăng nhập này đã tồn tại! Vui lòng chọn tên khác.")
+                        st.error("Tên đăng nhập đã tồn tại!")
 
     with tab2:
-        st.subheader("Danh sách nhân viên & Thay đổi quyền")
-        users_df = pd.read_sql_query("SELECT username AS 'Tên ĐN', fullname AS 'Họ Tên', can_report AS 'Gửi BC', can_view_history AS 'Xem LS', can_edit AS 'Sửa', can_delete AS 'Xóa' FROM users WHERE role='staff'", conn)
+        st.subheader("Danh sách nhân viên")
+        users_df = pd.read_sql_query("SELECT username AS 'Tên ĐN', fullname AS 'Họ Tên', can_report AS 'Quyền Gửi BC', can_view_history AS 'Quyền Xem LS', can_delete AS 'Quyền Xóa' FROM users WHERE role='staff'", conn)
         if users_df.empty:
             st.info("Chưa có tài khoản nhân viên nào.")
         else:
             st.dataframe(users_df, use_container_width=True)
-            
-            st.markdown("---")
-            st.write("❌ **Xóa tài khoản nhân viên:**")
-            user_to_del = st.selectbox("Chọn nhân viên cần xóa", users_df['Tên ĐN'].tolist())
-            if st.button("Xóa tài khoản này"):
+            st.write("---")
+            user_to_del = st.selectbox("Chọn tài khoản cần xóa / thu hồi quyền", users_df['Tên ĐN'].tolist())
+            if st.button("Xóa / Cắt Quyền Nhân Viên Giờ"):
                 c.execute("DELETE FROM users WHERE username=?", (user_to_del,))
                 conn.commit()
-                st.success("Đã xóa tài khoản nhân viên!")
+                st.success("Đã xóa tài khoản nhân viên khỏi hệ thống!")
                 st.rerun()
