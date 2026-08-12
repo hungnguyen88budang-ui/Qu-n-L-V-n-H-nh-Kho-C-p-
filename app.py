@@ -8,11 +8,42 @@ from datetime import datetime
 # 1. CẤU HÌNH CƠ SỞ DỮ LIỆU & HỆ THỐNG
 # ---------------------------------------------------------
 # CẤU HÌNH TRANG & NHÚNG ICON CHO ĐIỆN THOẠI
+import base64
+
+# Hàm đọc file icon chuyển thành dạng nhúng trực tiếp
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+# Đọc icon.png từ thư mục
+try:
+    icon_base64 = get_base64_of_bin_file('icon.png')
+    icon_link = f'data:image/png;base64,{icon_base64}'
+except:
+    icon_link = ''
+
+# CẤU HÌNH TRANG
 st.set_page_config(
     page_title="Quản Lý Kho Cấp Đông Mr Hưng",
     page_icon="icon.png",
     layout="wide"
 )
+
+# ÉP ĐIỆN THOẠI NHẬN ICON MỚI TRỰC TIẾP
+if icon_link:
+    st.markdown(
+        f"""
+        <head>
+            <link rel="apple-touch-icon" sizes="192x192" href="{icon_link}">
+            <link rel="apple-touch-icon-precomposed" href="{icon_link}">
+            <link rel="icon" type="image/png" sizes="192x192" href="{icon_link}">
+            <link rel="shortcut icon" href="{icon_link}">
+        </head>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # Nhúng manifest để điện thoại nhận Icon ngoài màn hình chính
 st.markdown(
