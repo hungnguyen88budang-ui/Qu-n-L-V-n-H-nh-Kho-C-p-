@@ -6,7 +6,12 @@ from datetime import datetime
 import base64
 import io
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from PIL import Image
 
 # ---------------------------------------------------------
 # 1. CẤU HÌNH TRANG & ICON
@@ -41,8 +46,54 @@ if icon_link:
         unsafe_allow_html=True
     )
 
+# HÀM NÉN VÀ GIẢM DUNG LƯỢNG ẢNH TỐI ƯU TỐC ĐỘ
+def process_and_save_image(file_buffer, save_path):
+    try:
+        img = Image.open(file_buffer)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.thumbnail((800, 800))
+        img.save(save_path, "JPEG", optimize=True, quality=70)
+        return True
+    except Exception as e:
+        st.error(f"Lỗi xử lý ảnh: {e}")
+        return False
+
+# HÀM KẺ KHUNG & TRANG TRÍ BẢNG WORD ĐẸP RÕ RÀNG
+def format_word_table(table):
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tblPr = table._tbl.tblPr
+    
+    # Thiết lập đường kẻ viền bảng (Borders)
+    tblBorders = OxmlElement('w:tblBorders')
+    for border_name in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+        border = OxmlElement(f'w:{border_name}')
+        border.set(qn('w:val'), 'single')
+        border.set(qn('w:sz'), '4')  # Độ dày nét kẻ
+        border.set(qn('w:space'), '0')
+        border.set(qn('w:color'), '555555')  # Màu xám đậm rõ nét
+        tblBorders.append(border)
+    tblPr.append(tblBorders)
+
+    # Tô màu nền tiêu đề bảng & định dạng ô
+    for i, row in enumerate(table.rows):
+        for cell in row.cells:
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            tcPr = cell._tc.get_or_add_tcPr()
+            if i == 0:
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:val'), 'clear')
+                shd.set(qn('w:color'), 'auto')
+                shd.set(qn('w:fill'), '0288D1') # Màu xanh chủ đạo
+                tcPr.append(shd)
+                for paragraph in cell.paragraphs:
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    for run in paragraph.runs:
+                        run.font.bold = True
+                        run.font.color.rgb = RGBColor(255, 255, 255)
+
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V104)
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V103)
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
@@ -135,7 +186,6 @@ def append_to_master_docx(ma_ca):
     doc.add_paragraph(f"📝 Ghi chú chung: {row_ca[5] if row_ca[5] else 'Không có'}")
     
     table = doc.add_table(rows=1, cols=6)
-    table.style = 'Table Grid'
     hdr = table.rows[0].cells
     hdr[0].text = 'Tên Kho / Thiết Bị'
     hdr[1].text = 'Nhiệt Độ (°C)'
@@ -148,6 +198,8 @@ def append_to_master_docx(ma_ca):
         r = table.add_row().cells
         r[0].text, r[1].text, r[2].text, r[3].text, r[4].text, r[5].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4]), str(item[5] if item[5] else "")
 
+    format_word_table(table)
+
     doc.add_paragraph("")
     doc.add_heading("📸 Hình Ảnh Chi Tiết Kèm Theo:", level=2)
     for item in chi_tiet:
@@ -155,31 +207,35 @@ def append_to_master_docx(ma_ca):
         if img_path and os.path.exists(img_path):
             doc.add_paragraph(f"• {item[0]} (Nhiệt độ: {item[1]}°C, Độ ẩm: {item[2]}%, Trạng thái: {item[4]}):")
             try:
-                doc.add_picture(img_path, width=Inches(4.0))
+                doc.add_picture(img_path, width=Inches(3.8))
             except:
                 doc.add_paragraph("⚠️ Không thể tải hình ảnh này.")
 
     doc.save(MASTER_DOCX_PATH)
 
+    # Xuất file riêng ca trực
     single_doc_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
     single_doc = Document()
     single_doc.add_heading(f"BÁO CÁO CA TRỰC: {ma_ca}", level=1)
     single_doc.add_paragraph(f"⏰ Thời gian: {row_ca[2]} | Ca / Khung giờ: {row_ca[3]} | Người báo cáo: {row_ca[4]}")
-    single_doc.add_paragraph(f"Ghi chú chung: {row_ca[5]}")
+    single_doc.add_paragraph(f"Ghi chú chung: {row_ca[5] if row_ca[5] else 'Không có'}")
     
     t_s = single_doc.add_table(rows=1, cols=6)
-    t_s.style = 'Table Grid'
     h_s = t_s.rows[0].cells
-    h_s[0].text, h_s[1].text, h_s[2].text, h_s[3].text, h_s[4].text, h_s[5].text = 'Kho', 'Nhiệt độ', 'Độ ẩm', 'Sản lượng', 'Trạng thái', 'Ghi chú riêng'
+    h_s[0].text, h_s[1].text, h_s[2].text, h_s[3].text, h_s[4].text, h_s[5].text = 'Kho / Thiết Bị', 'Nhiệt độ (°C)', 'Độ ẩm (%)', 'Sản lượng (Tấn)', 'Trạng thái', 'Ghi chú riêng'
     for item in chi_tiet:
         rs = t_s.add_row().cells
         rs[0].text, rs[1].text, rs[2].text, rs[3].text, rs[4].text, rs[5].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4]), str(item[5] if item[5] else "")
     
+    format_word_table(t_s)
+
+    single_doc.add_paragraph("")
+    single_doc.add_heading("📸 Hình Ảnh Chi Tiết:", level=2)
     for item in chi_tiet:
         if item[6] and os.path.exists(item[6]):
             single_doc.add_paragraph(f"• Ảnh {item[0]}:")
             try:
-                single_doc.add_picture(item[6], width=Inches(4.0))
+                single_doc.add_picture(item[6], width=Inches(3.8))
             except:
                 pass
     single_doc.save(single_doc_path)
@@ -274,7 +330,7 @@ else:
                             cursor.execute("DELETE FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,))
                             cursor.execute("DELETE FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,))
                             conn.commit()
-                            st.success(f"Đã xóa lịch sử ca {ma_ca} khỏi ứng dụng (File tổng vẫn giữ nguyên)!")
+                            st.success(f"Đã xóa lịch sử ca {ma_ca} khỏi ứng dụng!")
                             st.rerun()
 
                     st.markdown("---")
@@ -300,13 +356,13 @@ else:
         else:
             st.info("Chưa có báo cáo ca trực nào.")
 
-    # TAB 2: LẬP BÁO CÁO (CHO PHÉP TỰ ĐIỀN THỜI GIAN CA TRỰC)
+    # TAB 2: LẬP BÁO CÁO
     with tabs[1]:
         if can_report:
             st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
             
             if "submitted_ca" in st.session_state:
-                st.success(f"🔔 **ĐÃ GỬI BÁO CÁO THÀNH CÔNG VÀ ĐÃ CẬP NHẬT VÀO FILE TỔNG! (Mã ca: {st.session_state['submitted_ca']})**")
+                st.success(f"🔔 **ĐÃ GỬI BÁO CÁO THÀNH CÔNG! (Mã ca: {st.session_state['submitted_ca']})**")
                 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
@@ -332,22 +388,15 @@ else:
                         ma_ca = col_top1.text_input("Mã Ca Trực", value=f"CA-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
                         nguoi_lap = col_top2.text_input("Người Báo Cáo", value=current_user["ho_ten"], disabled=True)
 
-                        # MỤC TÙY CHỈNH THỜI GIAN CA TRỰC TỰ ĐIỀN
                         st.markdown("---")
-                        st.markdown("##### ⏰ Thời Gian / Khung Giờ Ca Trực (Linh hoạt tự chọn / điền)")
+                        st.markdown("##### ⏰ Thời Gian / Khung Giờ Ca Trực")
                         
                         c_ca1, c_ca2, c_ca3 = st.columns([2, 2, 3])
-                        
-                        # Cho phép chọn thời gian bắt đầu & kết thúc
                         tg_bat_dau = c_ca1.time_input("Từ giờ", value=datetime.strptime("06:00", "%H:%M").time())
                         tg_ket_thuc = c_ca2.time_input("Đến giờ", value=datetime.strptime("14:00", "%H:%M").time())
+                        ten_ca_tu_nhap = c_ca3.text_input("Tên Ca / Diễn giải thêm", value="Ca Sáng")
                         
-                        # Cho phép nhân viên gõ tự do tên ca hoặc diễn giải bổ sung
-                        ten_ca_tu_nhap = c_ca3.text_input("Tên Ca / Diễn giải thêm (Ví dụ: Ca Sáng, Ca 1, Ca Tăng Cường...)", value="Ca Sáng")
-                        
-                        # Tổng hợp chuỗi hiển thị thời gian ca
                         ca_truc_str = f"{ten_ca_tu_nhap.strip()} ({tg_bat_dau.strftime('%Hh%M')} - {tg_ket_thuc.strftime('%Hh%M')})"
-
                         ghi_chu_chung = st.text_area("Ghi chú chung ca trực (nếu có)")
 
                         st.markdown("---")
@@ -365,17 +414,20 @@ else:
                                     d_am = col_b.number_input(f"Độ ẩm (%)", value=85.0, step=0.5, key=f"da_{kho}")
                                     s_luong = col_c.number_input(f"Sản lượng (Tấn)", value=0.0, step=0.1, key=f"sl_{kho}")
                                     t_thai = st.selectbox(f"Trạng thái vận hành", ds_tt if ds_tt else ["Bình thường"], key=f"tt_{kho}")
-                                    gc_kho = st.text_input(f"📝 Ghi chú riêng cho [{kho}] (Nếu có)", value="", key=f"gc_{kho}")
+                                    gc_kho = st.text_input(f"📝 Ghi chú riêng cho [{kho}]", value="", key=f"gc_{kho}")
 
                                 with col_r:
-                                    file_img = st.file_uploader(f"📸 Chụp / Tải ảnh riêng cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+                                    file_img = st.file_uploader(f"📸 Chụp / Tải ảnh cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
 
                                 kho_inputs[kho] = {
                                     "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
                                     "trang_thai": t_thai, "ghi_chu_kho": gc_kho, "file_img": file_img
                                 }
 
-                        if st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC"):
+                        btn_submit = st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC")
+
+                    if btn_submit:
+                        with st.spinner("⏳ Đang nén ảnh và kẻ khung tạo báo cáo Word..."):
                             now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                             cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
                                            (ma_ca, now_str, ca_truc_str, nguoi_lap, ghi_chu_chung))
@@ -383,9 +435,9 @@ else:
                             for kho, data in kho_inputs.items():
                                 img_path = ""
                                 if data["file_img"]:
-                                    img_path = os.path.join(UPLOAD_DIR, f"{ma_ca}_{kho}_{data['file_img'].name}")
-                                    with open(img_path, "wb") as f:
-                                        f.write(data["file_img"].getbuffer())
+                                    img_filename = f"{ma_ca}_{kho}.jpg"
+                                    img_path = os.path.join(UPLOAD_DIR, img_filename)
+                                    process_and_save_image(data["file_img"], img_path)
 
                                 cursor.execute('''
                                     INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, ghi_chu_kho, duong_dan_anh)
@@ -399,7 +451,7 @@ else:
         else:
             st.warning("🔒 Tài khoản của bạn là quyền VIEWER (Chỉ xem), không được phép lập báo cáo.")
 
-    # TAB 3: CÀI ĐẶT SÂU (BẢO VỆ BẰNG MẬT KHẨU ADMIN)
+    # TAB 3: CÀI ĐẶT SÂU (GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ TÍNH NĂNG CÀI ĐẶT)
     with tabs[2]:
         st.subheader("⚙️ Cài Đặt Hệ Thống & Quản Lý Sâu")
         
