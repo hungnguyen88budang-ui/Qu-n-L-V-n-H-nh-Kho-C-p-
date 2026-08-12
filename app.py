@@ -41,14 +41,14 @@ if icon_link:
     )
 
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU & TỰ ĐỘNG NÂNG CẤP BẢNG
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V100 MỚI TÍNH)
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-# Dùng file database chung
-conn = sqlite3.connect("kho_cap_dong.db", check_same_thread=False)
+# Sử dụng tên database hoàn toàn mới để ép Streamlit tạo mới sạch sẽ 100%
+conn = sqlite3.connect("kho_system_v100.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''
@@ -91,24 +91,17 @@ if count_tt == 0:
     for tt in ds_tt_ban_dau:
         cursor.execute('INSERT OR IGNORE INTO danh_muc_trang_thai (ten_trang_thai) VALUES (?)', (tt,))
 
-# Tạo bảng tài khoản
+# Tạo bảng Tài khoản chuẩn 5 cột ngay từ đầu
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tai_khoan (
     username TEXT PRIMARY KEY,
     password TEXT,
     ho_ten TEXT,
-    vai_tro TEXT
+    vai_tro TEXT,
+    trang_thai TEXT
 )
 ''')
 
-# TỰ ĐỘNG THÊM CỘT trang_thai NẾU CƠ SỞ DỮ LIỆU CŨ CHƯA CÓ (TRÁNH LỖI OVERALL)
-try:
-    cursor.execute('ALTER TABLE tai_khoan ADD COLUMN trang_thai TEXT DEFAULT "hoat_dong"')
-    conn.commit()
-except sqlite3.OperationalError:
-    pass # Cột đã tồn tại, bỏ qua
-
-# Thêm tài khoản mặc định
 cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("admin", "admin123", "Quản Trị Viên Hùng", "admin", "hoat_dong")')
 cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("nv01", "123", "Nguyễn Văn A", "nhanvien", "hoat_dong")')
 cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("xem01", "123", "Ban Giám Đốc", "viewer", "hoat_dong")')
