@@ -1,4 +1,3 @@
-
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -42,13 +41,13 @@ if icon_link:
     )
 
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU (TẠO DATABASE V9 MỚI)
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SỬA LỖI TRIỆT ĐỂ
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-conn = sqlite3.connect("kho_cap_dong_v9.db", check_same_thread=False)
+conn = sqlite3.connect("kho_v10.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''
@@ -75,7 +74,7 @@ CREATE TABLE IF NOT EXISTS chi_tiet_kho (
 )
 ''')
 
-# Khởi tạo danh mục kho nếu chưa có
+# Khởi tạo danh mục kho
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_kho (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_kho TEXT UNIQUE)')
 count_kho = cursor.execute('SELECT COUNT(*) FROM danh_muc_kho').fetchone()[0]
 if count_kho == 0:
@@ -83,7 +82,7 @@ if count_kho == 0:
     for kho in danh_sach_kho_ban_dau:
         cursor.execute('INSERT OR IGNORE INTO danh_muc_kho (ten_kho) VALUES (?)', (kho,))
 
-# Khởi tạo danh mục trạng thái nếu chưa có
+# Khởi tạo danh mục trạng thái
 cursor.execute('CREATE TABLE IF NOT EXISTS danh_muc_trang_thai (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_trang_thai TEXT UNIQUE)')
 count_tt = cursor.execute('SELECT COUNT(*) FROM danh_muc_trang_thai').fetchone()[0]
 if count_tt == 0:
@@ -91,6 +90,7 @@ if count_tt == 0:
     for tt in ds_tt_ban_dau:
         cursor.execute('INSERT OR IGNORE INTO danh_muc_trang_thai (ten_trang_thai) VALUES (?)', (tt,))
 
+# Bảng Tài khoản với chỉ định rõ danh sách cột khi INSERT
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS tai_khoan (
     username TEXT PRIMARY KEY,
@@ -101,9 +101,9 @@ CREATE TABLE IF NOT EXISTS tai_khoan (
 )
 ''')
 
-cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("admin", "admin123", "Quản Trị Viên Hùng", "admin", "hoat_dong")')
-cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("nv01", "123", "Nguyễn Văn A", "nhanvien", "hoat_dong")')
-cursor.execute('INSERT OR IGNORE INTO tai_khoan VALUES ("xem01", "123", "Ban Giám Đốc", "viewer", "hoat_dong")')
+cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("admin", "admin123", "Quản Trị Viên Hùng", "admin", "hoat_dong")')
+cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("nv01", "123", "Nguyễn Văn A", "nhanvien", "hoat_dong")')
+cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("xem01", "123", "Ban Giám Đốc", "viewer", "hoat_dong")')
 conn.commit()
 
 # ---------------------------------------------------------
@@ -152,7 +152,6 @@ else:
     is_admin = (current_user["vai_tro"] == "admin")
     can_report = current_user["vai_tro"] in ["admin", "nhanvien"]
 
-    # Lấy danh sách Kho và Trạng thái mới nhất từ Database
     ds_kho = [row[0] for row in cursor.execute("SELECT ten_kho FROM danh_muc_kho ORDER BY id ASC").fetchall()]
     ds_tt = [row[0] for row in cursor.execute("SELECT ten_trang_thai FROM danh_muc_trang_thai ORDER BY id ASC").fetchall()]
 
@@ -365,7 +364,7 @@ else:
                 if st.form_submit_button("TẠO TÀI KHOẢN"):
                     if new_u and new_p and new_n:
                         try:
-                            cursor.execute("INSERT INTO tai_khoan VALUES (?, ?, ?, ?, 'hoat_dong')", (new_u, new_p, new_n, new_r))
+                            cursor.execute("INSERT INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES (?, ?, ?, ?, 'hoat_dong')", (new_u, new_p, new_n, new_r))
                             conn.commit()
                             st.success(f"Đã tạo tài khoản cho {new_n} ({new_r})!")
                             st.rerun()
