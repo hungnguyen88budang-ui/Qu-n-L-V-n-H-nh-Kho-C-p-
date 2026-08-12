@@ -155,7 +155,7 @@ else:
 
     tabs = st.tabs(tabs_list)
 
-    # TAB 1: XEM BÁO CÁO
+    # TAB 1: XEM BÁO CÁO (ĐÃ SỬA LỖI HIỂN THỊ ẢNH)
     with tabs[0]:
         st.subheader("📊 Nhật Ký Báo Cáo Ca Trực")
         df_ca = pd.read_sql_query("SELECT * FROM bao_cao_tong_hop ORDER BY id DESC", conn)
@@ -177,7 +177,7 @@ else:
                         zip_buffer = io.BytesIO()
                         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                             for item in list_anh:
-                                if os.path.exists(item[1]):
+                                if item[1] and os.path.exists(item[1]):
                                     ext = os.path.splitext(item[1])[1]
                                     zip_file.write(item[1], arcname=f"{item[0]}{ext}")
                         col_dl2.download_button("📸 Tải Trọn Bộ Ảnh (.ZIP)", data=zip_buffer.getvalue(), file_name=f"Anh_{ma_ca}.zip", mime="application/zip", key=f"zip_{ma_ca}")
@@ -197,13 +197,13 @@ else:
                                 st.write(f"• Trạng thái: **{item[4]}**")
                                 st.markdown("**Hình ảnh thực tế:**")
                                 if item[5] and os.path.exists(item[5]):
-                                    st.image(item[5], use_column_width=True)
+                                    st.image(item[5], use_container_width=True)
                                 else:
                                     st.info("Không có ảnh")
         else:
             st.info("Chưa có báo cáo ca trực nào.")
 
-    # TAB 2: LẬP BÁO CÁO (KIỂM TRA QUYỀN)
+    # TAB 2: LẬP BÁO CÁO
     with tabs[1]:
         if can_report:
             st.subheader("📝 Lập Báo Cáo Ca Trực Mới")
@@ -266,7 +266,6 @@ else:
         with tabs[2]:
             st.subheader("⚙️ Quản Lý Danh Mục Kho & Thiết Bị")
             
-            # 1. ĐỔI TÊN KHO (MỚI)
             with st.container(border=True):
                 st.markdown("##### ✏️ ĐỔI TÊN KHO / THIẾT BỊ CÓ SẴN")
                 c_sel, c_new, c_btn = st.columns([2, 2, 1])
@@ -307,12 +306,11 @@ else:
                         st.success(f"Đã xóa: {kho_can_xoa}")
                         st.rerun()
 
-    # TAB 4: ADMIN PHÂN QUYỀN & QUẢN LÝ TÀI KHOẢN
+    # TAB 4: ADMIN PHÂN QUYỀN
     if is_admin:
         with tabs[3]:
             st.subheader("👥 Cấp Tài Khoản & Phân Quyền Nhân Viên")
             
-            # Form tạo tài khoản mới
             with st.form("form_tao_tk"):
                 st.markdown("##### ➕ Tạo tài khoản mới cho nhân viên / quản lý")
                 c_u, c_p, c_n, c_r = st.columns(4)
