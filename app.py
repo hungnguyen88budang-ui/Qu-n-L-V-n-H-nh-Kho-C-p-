@@ -95,7 +95,6 @@ def format_word_table(table):
 
 # HÀM BỐ CỤC HÌNH ẢNH DẠNG LƯỚI GỌN GÀNG TRONG WORD
 def add_image_grid_to_docx(doc, chi_tiet_items):
-    # Lấy danh sách tất cả ảnh (tách chuỗi phân cách bởi dấu phẩy nếu kho có nhiều ảnh)
     all_image_nodes = []
     for item in chi_tiet_items:
         ten_kho, nhiet_do, trang_thai, duong_dan_anh = item[0], item[1], item[4], item[6]
@@ -112,7 +111,6 @@ def add_image_grid_to_docx(doc, chi_tiet_items):
     h = doc.add_heading("📸 Hình Ảnh Chi Tiết Thực Tế Báo Cáo:", level=2)
     h.paragraph_format.space_after = Pt(8)
 
-    # Tạo bảng 2 cột ẩn viền để làm lưới ảnh
     grid_table = doc.add_table(rows=0, cols=2)
     grid_table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
@@ -216,7 +214,7 @@ cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai
 conn.commit()
 
 # ---------------------------------------------------------
-# 3. HÀM XUẤT VÀ CHUYỂN FILE WORD TRỰC TIẾP
+# 3. HÀM TẢI & CHIA SẺ FILE HỆ THỐNG (WEB SHARE API + ZALO)
 # ---------------------------------------------------------
 def render_download_and_share_button(file_path, button_text, filename):
     if os.path.exists(file_path):
@@ -229,8 +227,32 @@ def render_download_and_share_button(file_path, button_text, filename):
             href = f'<a href="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{b64}" download="{filename}" target="_blank" style="text-decoration:none;"><button style="background-color:#0288d1;color:white;padding:10px 15px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">📥 {button_text}</button></a>'
             st.markdown(href, unsafe_allow_html=True)
         with c2:
-            zalo_share_url = f"https://zalo.me/share?url={filename}"
-            st.markdown(f'<a href="{zalo_share_url}" target="_blank" style="text-decoration:none;"><button style="background-color:#0084ff;color:white;padding:10px 15px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">💬 Chuyển File Qua Zalo</button></a>', unsafe_allow_html=True)
+            # Tích hợp Script Gọi Menu Chia Sẻ Hệ Thống (Zalo/Messenger/Drive/Viber...)
+            share_script = f"""
+            <script>
+            async function shareFile_{filename.replace('.', '_')}() {{
+                const base64Data = '{b64}';
+                const blob = await fetch(`data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${{base64Data}}`).then(r => r.blob());
+                const file = new File([blob], '{filename}', {{ type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }});
+                
+                if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+                    try {{
+                        await navigator.share({{
+                            files: [file],
+                            title: '{filename}',
+                            text: 'Báo cáo vận hành kho: {filename}'
+                        }});
+                    }} catch (err) {{
+                        console.log('Hủy chia sẻ');
+                    }}
+                }} else {{
+                    window.open('https://zalo.me/share?url=' + encodeURIComponent(window.location.href), '_blank');
+                }}
+            }}
+            </script>
+            <button onclick="shareFile_{filename.replace('.', '_')}()" style="background-color:#0084ff;color:white;padding:10px 15px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">📱 Nhấn Giữ / Chia Sẻ File</button>
+            """
+            st.markdown(share_script, unsafe_allow_html=True)
 
 def append_to_master_docx(ma_ca):
     row_ca = cursor.execute("SELECT * FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,)).fetchone()
@@ -402,7 +424,6 @@ else:
                                     else:
                                         st.info("Không có ảnh")
                     else:
-                        # TRÌNH LƯỚT XEM TỪNG HÌNH ẢNH NHANH (SLIDE CHUYÊN NGHIỆP)
                         img_flat_items = []
                         for item in df_full:
                             if item[6]:
@@ -515,7 +536,6 @@ else:
                                     gc_kho = st.text_input(f"📝 Ghi chú riêng cho [{kho}]", value="", key=f"gc_{kho}")
 
                                 with col_r:
-                                    # MỞ RỘNG: Lựa chọn nhiều ảnh cùng lúc cho 1 kho
                                     files_img = st.file_uploader(f"📸 Chụp / Tải NHIỀU ÁNH cho [{kho}]", type=["jpg", "png", "jpeg"], accept_multiple_files=True, key=f"img_{kho}")
 
                                 kho_inputs[kho] = {
