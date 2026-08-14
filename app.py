@@ -12,7 +12,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ---------------------------------------------------------
 # 1. CẤU HÌNH TRANG & ICON
@@ -47,20 +47,22 @@ if icon_link:
         unsafe_allow_html=True
     )
 
-# HÀM NÉN VÀ BỐ CỤC LẠI HÌNH ẢNH
+# HÀM NÉN, BỎ XOAY ẢNH VÀ XỬ LÝ ĐÚNG CHIỀU
 def process_and_save_image(file_buffer, save_path):
     try:
         img = Image.open(file_buffer)
+        # Sửa lỗi ảnh chụp từ điện thoại bị xoay ngang/ngược
+        img = ImageOps.exif_transpose(img)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         img.thumbnail((800, 800))
-        img.save(save_path, "JPEG", optimize=True, quality=70)
+        img.save(save_path, "JPEG", optimize=True, quality=75)
         return True
     except Exception as e:
         st.error(f"Lỗi xử lý ảnh: {e}")
         return False
 
-# HÀM KẺ KHUNG BẢNG WORD RÕ RÀNG VÀ TỐI ƯU
+# HÀM KẺ KHUNG BẢNG WORD
 def format_word_table(table):
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     tblPr = table._tbl.tblPr
@@ -91,8 +93,63 @@ def format_word_table(table):
                         run.font.bold = True
                         run.font.color.rgb = RGBColor(255, 255, 255)
 
+# HÀM BỐ CỤC HÌNH ẢNH DẠNG LƯỚI GỌN GÀNG TRONG WORD
+def add_image_grid_to_docx(doc, chi_tiet_items):
+    # Lấy danh sách tất cả ảnh (tách chuỗi phân cách bởi dấu phẩy nếu kho có nhiều ảnh)
+    all_image_nodes = []
+    for item in chi_tiet_items:
+        ten_kho, nhiet_do, trang_thai, duong_dan_anh = item[0], item[1], item[4], item[6]
+        if duong_dan_anh:
+            paths = [p.strip() for p in duong_dan_anh.split(",") if p.strip()]
+            for p in paths:
+                if os.path.exists(p):
+                    all_image_nodes.append((ten_kho, nhiet_do, trang_thai, p))
+
+    if not all_image_nodes:
+        return
+
+    doc.add_paragraph("")
+    h = doc.add_heading("📸 Hình Ảnh Chi Tiết Thực Tế Báo Cáo:", level=2)
+    h.paragraph_format.space_after = Pt(8)
+
+    # Tạo bảng 2 cột ẩn viền để làm lưới ảnh
+    grid_table = doc.add_table(rows=0, cols=2)
+    grid_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    for i in range(0, len(all_image_nodes), 2):
+        row_cells = grid_table.add_row().cells
+        
+        # Ô bên trái
+        item_l = all_image_nodes[i]
+        p_l = row_cells[0].paragraphs[0]
+        p_l.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        try:
+            p_l.add_run().add_picture(item_l[3], width=Inches(2.7))
+            p_desc_l = row_cells[0].add_paragraph()
+            p_desc_l.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_l = p_desc_l.add_run(f"📍 {item_l[0]}\nNhiệt độ: {item_l[1]}°C | TT: {item_l[2]}")
+            run_l.font.size = Pt(9.5)
+            run_l.font.bold = True
+        except:
+            p_l.add_run("[Lỗi hiển thị ảnh]")
+
+        # Ô bên phải (nếu có)
+        if i + 1 < len(all_image_nodes):
+            item_r = all_image_nodes[i+1]
+            p_r = row_cells[1].paragraphs[0]
+            p_r.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            try:
+                p_r.add_run().add_picture(item_r[3], width=Inches(2.7))
+                p_desc_r = row_cells[1].add_paragraph()
+                p_desc_r.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run_r = p_desc_r.add_run(f"📍 {item_r[0]}\nNhiệt độ: {item_r[1]}°C | TT: {item_r[2]}")
+                run_r.font.size = Pt(9.5)
+                run_r.font.bold = True
+            except:
+                p_r.add_run("[Lỗi hiển thị ảnh]")
+
 # ---------------------------------------------------------
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V103)
+# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU SẠCH (DATABASE V104)
 # ---------------------------------------------------------
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
@@ -159,15 +216,21 @@ cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai
 conn.commit()
 
 # ---------------------------------------------------------
-# 3. HÀM TẠO LINK TẢI VÀ XUẤT FILE WORD
+# 3. HÀM XUẤT VÀ CHUYỂN FILE WORD TRỰC TIẾP
 # ---------------------------------------------------------
-def render_download_button(file_path, button_text, filename):
+def render_download_and_share_button(file_path, button_text, filename):
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
             bytes_data = f.read()
         b64 = base64.b64encode(bytes_data).decode()
-        href = f'<a href="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{b64}" download="{filename}" target="_blank" style="text-decoration:none;"><button style="background-color:#0288d1;color:white;padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">{button_text}</button></a>'
-        st.markdown(href, unsafe_allow_html=True)
+        
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            href = f'<a href="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{b64}" download="{filename}" target="_blank" style="text-decoration:none;"><button style="background-color:#0288d1;color:white;padding:10px 15px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">📥 {button_text}</button></a>'
+            st.markdown(href, unsafe_allow_html=True)
+        with c2:
+            zalo_share_url = f"https://zalo.me/share?url={filename}"
+            st.markdown(f'<a href="{zalo_share_url}" target="_blank" style="text-decoration:none;"><button style="background-color:#0084ff;color:white;padding:10px 15px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:100%;">💬 Chuyển File Qua Zalo</button></a>', unsafe_allow_html=True)
 
 def append_to_master_docx(ma_ca):
     row_ca = cursor.execute("SELECT * FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,)).fetchone()
@@ -198,29 +261,14 @@ def append_to_master_docx(ma_ca):
         r[0].text, r[1].text, r[2].text, r[3].text, r[4].text, r[5].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4]), str(item[5] if item[5] else "")
 
     format_word_table(table)
-
-    # BỐ CỤC HÌNH ẢNH GỌN GÀNG TRONG FILE WORD
-    doc.add_paragraph("")
-    doc.add_heading("📸 Hình Ảnh Chi Tiết Kèm Theo:", level=2)
-    for item in chi_tiet:
-        img_path = item[6]
-        if img_path and os.path.exists(img_path):
-            p = doc.add_paragraph()
-            p.add_run(f"• Ảnh thực tế tại {item[0]} (Nhiệt độ: {item[1]}°C, Trạng thái: {item[4]}):").bold = True
-            try:
-                p_img = doc.add_paragraph()
-                p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_img.add_run().add_picture(img_path, width=Inches(2.8))
-            except:
-                doc.add_paragraph("⚠️ Không thể hiển thị hình ảnh này.")
-
+    add_image_grid_to_docx(doc, chi_tiet)
     doc.save(MASTER_DOCX_PATH)
 
-    # ĐỒNG THỜI XUẤT FILE RIÊNG CA TRỰC NÀY
+    # ĐỒNG THỜI XUẤT FILE RIÊNG
     single_doc_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
     single_doc = Document()
     single_doc.add_heading(f"BÁO CÁO CA TRỰC: {ma_ca}", level=1)
-    single_doc.add_paragraph(f"⏰ Thời gian gửi báo cáo: {row_ca[2]} | Ca / Khung giờ: {row_ca[3]} | Người báo cáo: {row_ca[4]}")
+    single_doc.add_paragraph(f"⏰ Thời gian gửi: {row_ca[2]} | Ca / Khung giờ: {row_ca[3]} | Người báo cáo: {row_ca[4]}")
     single_doc.add_paragraph(f"Ghi chú chung: {row_ca[5] if row_ca[5] else 'Không có'}")
     
     t_s = single_doc.add_table(rows=1, cols=6)
@@ -231,19 +279,7 @@ def append_to_master_docx(ma_ca):
         rs[0].text, rs[1].text, rs[2].text, rs[3].text, rs[4].text, rs[5].text = str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4]), str(item[5] if item[5] else "")
     
     format_word_table(t_s)
-
-    single_doc.add_paragraph("")
-    single_doc.add_heading("📸 Hình Ảnh Chi Tiết:", level=2)
-    for item in chi_tiet:
-        if item[6] and os.path.exists(item[6]):
-            p_s = single_doc.add_paragraph()
-            p_s.add_run(f"• Ảnh {item[0]}:").bold = True
-            try:
-                p_s_img = single_doc.add_paragraph()
-                p_s_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_s_img.add_run().add_picture(item[6], width=Inches(2.8))
-            except:
-                pass
+    add_image_grid_to_docx(single_doc, chi_tiet)
     single_doc.save(single_doc_path)
 
 # ---------------------------------------------------------
@@ -307,9 +343,9 @@ else:
         st.subheader("📊 Nhật Ký Báo Cáo Ca Trực Tổng Hợp")
         
         if os.path.exists(MASTER_DOCX_PATH):
-            render_download_button(
+            render_download_and_share_button(
                 MASTER_DOCX_PATH, 
-                "📘 MỞ / TẢI FILE TỔNG TẤT CẢ CÁC BÁO CÁO (TAB MỚI)", 
+                "TẢI FILE TỔNG TẤT CẢ BÁO CÁO", 
                 "Baocao_Tonghop_Capnhat.docx"
             )
         
@@ -322,43 +358,94 @@ else:
                 with st.expander(f"📌 Mã Ca: {ma_ca} | Ngày gửi: {row_ca['thoi_gian']} | Ca: {row_ca['ca_truc']} | Người báo cáo: {row_ca['nguoi_bao_cao']}"):
                     st.write(f"**Ghi chú chung:** {row_ca['ghi_chu_chung']}")
                     
-                    c_dl1, c_dl2 = st.columns([3, 1])
-                    with c_dl1:
-                        single_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
-                        if os.path.exists(single_path):
-                            render_download_button(
-                                single_path,
-                                f"📂 Tải riêng file ca này ({ma_ca})",
-                                f"BaoCao_LichSu_{ma_ca}.docx"
-                            )
-                    with c_dl2:
-                        if st.button(f"🗑️ Xóa Lịch Sử Ca Này", key=f"del_ca_{ma_ca}"):
-                            cursor.execute("DELETE FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,))
-                            cursor.execute("DELETE FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,))
-                            conn.commit()
-                            st.success(f"Đã xóa lịch sử ca {ma_ca} khỏi ứng dụng!")
-                            st.rerun()
+                    single_path = os.path.join(UPLOAD_DIR, f"BaoCao_{ma_ca}.docx")
+                    if os.path.exists(single_path):
+                        render_download_and_share_button(
+                            single_path,
+                            f"Tải riêng file ca {ma_ca}",
+                            f"BaoCao_LichSu_{ma_ca}.docx"
+                        )
+                    
+                    if st.button(f"🗑️ Xóa Lịch Sử Ca Này", key=f"del_ca_{ma_ca}"):
+                        cursor.execute("DELETE FROM bao_cao_tong_hop WHERE ma_ca_truc = ?", (ma_ca,))
+                        cursor.execute("DELETE FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,))
+                        conn.commit()
+                        st.success(f"Đã xóa lịch sử ca {ma_ca}!")
+                        st.rerun()
 
                     st.markdown("---")
-                    st.write("📷 **BÁO CÁO CHI TIẾT TỪNG KHO:**")
                     
+                    # CHẾ ĐỘ XEM HÌNH ẢNH LƯỚI & TRÌNH SLIDE XEM NHANH
                     df_full = cursor.execute("SELECT ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, ghi_chu_kho, duong_dan_anh FROM chi_tiet_kho WHERE ma_ca_truc = ?", (ma_ca,)).fetchall()
-                    cols = st.columns(3)
-                    for idx_item, item in enumerate(df_full):
-                        with cols[idx_item % 3]:
-                            with st.container(border=True):
-                                st.markdown(f"#### 🏭 {item[0]}")
-                                st.write(f"• Nhiệt độ: **{item[1]} °C**")
-                                st.write(f"• Độ ẩm: **{item[2]} %**")
-                                st.write(f"• Sản lượng: **{item[3]} Tấn**")
-                                st.write(f"• Trạng thái: **{item[4]}**")
-                                if item[5]:
-                                    st.write(f"• Ghi chú riêng: *{item[5]}*")
-                                st.markdown("**Hình ảnh thực tế:**")
-                                if item[6] and os.path.exists(item[6]):
-                                    st.image(item[6], use_container_width=True)
-                                else:
-                                    st.info("Không có ảnh")
+                    
+                    view_mode = st.radio("Chế độ xem hình ảnh:", ["🖼️ Dạng Lưới Tất Cả Kho", "🔎 Xem Chi Tiết & Lướt Từng Ảnh (Slide)"], key=f"mode_{ma_ca}", horizontal=True)
+
+                    if view_mode == "🖼️ Dạng Lưới Tất Cả Kho":
+                        cols = st.columns(3)
+                        for idx_item, item in enumerate(df_full):
+                            with cols[idx_item % 3]:
+                                with st.container(border=True):
+                                    st.markdown(f"#### 🏭 {item[0]}")
+                                    st.write(f"• Nhiệt độ: **{item[1]} °C**")
+                                    st.write(f"• Độ ẩm: **{item[2]} %**")
+                                    st.write(f"• Sản lượng: **{item[3]} Tấn**")
+                                    st.write(f"• Trạng thái: **{item[4]}**")
+                                    if item[5]:
+                                        st.write(f"• Ghi chú: *{item[5]}*")
+                                    
+                                    img_str = item[6]
+                                    if img_str:
+                                        p_list = [p.strip() for p in img_str.split(",") if p.strip()]
+                                        for p in p_list:
+                                            if os.path.exists(p):
+                                                st.image(p, use_container_width=True)
+                                    else:
+                                        st.info("Không có ảnh")
+                    else:
+                        # TRÌNH LƯỚT XEM TỪNG HÌNH ẢNH NHANH (SLIDE CHUYÊN NGHIỆP)
+                        img_flat_items = []
+                        for item in df_full:
+                            if item[6]:
+                                p_list = [p.strip() for p in item[6].split(",") if p.strip()]
+                                for p in p_list:
+                                    if os.path.exists(p):
+                                        img_flat_items.append((item[0], item[1], item[2], item[3], item[4], item[5], p))
+
+                        if not img_flat_items:
+                            st.warning("Ca trực này chưa upload hình ảnh nào.")
+                        else:
+                            idx_key = f"slide_idx_{ma_ca}"
+                            if idx_key not in st.session_state:
+                                st.session_state[idx_key] = 0
+
+                            curr_idx = st.session_state[idx_key]
+                            curr_item = img_flat_items[curr_idx]
+
+                            c_prev, c_info, c_next = st.columns([1, 4, 1])
+                            with c_prev:
+                                if st.button("◀ Ảnh Trước", key=f"p_{ma_ca}"):
+                                    st.session_state[idx_key] = (curr_idx - 1) % len(img_flat_items)
+                                    st.rerun()
+                            with c_next:
+                                if st.button("Ảnh Tiếp ▶", key=f"n_{ma_ca}"):
+                                    st.session_state[idx_key] = (curr_idx + 1) % len(img_flat_items)
+                                    st.rerun()
+
+                            with c_info:
+                                st.caption(f"Đang xem hình {curr_idx + 1} / {len(img_flat_items)}")
+
+                            col_img, col_txt = st.columns([3, 2])
+                            with col_img:
+                                st.image(curr_item[6], caption=f"Hình ảnh tại {curr_item[0]}", use_container_width=True)
+                            with col_txt:
+                                with st.container(border=True):
+                                    st.markdown(f"### 📍 Thông Tin {curr_item[0]}")
+                                    st.markdown(f"* **Nhiệt độ:** `{curr_item[1]} °C`")
+                                    st.markdown(f"* **Độ ẩm:** `{curr_item[2]} %`")
+                                    st.markdown(f"* **Sản lượng:** `{curr_item[3]} Tấn`")
+                                    st.markdown(f"* **Trạng thái:** `{curr_item[4]}`")
+                                    st.markdown(f"* **Ghi chú riêng:** {curr_item[5] if curr_item[5] else 'Không có'}")
+
         else:
             st.info("Chưa có báo cáo ca trực nào.")
 
@@ -371,25 +458,14 @@ else:
                 submitted_ma_ca = st.session_state['submitted_ca']
                 st.success(f"🔔 **ĐÃ GỬI BÁO CÁO THÀNH CÔNG! (Mã ca: {submitted_ma_ca})**")
                 
-                # HIỂN THỊ NÚT XUẤT FILE TRỰC TIẾP TRÊN APP
-                st.markdown("#### 📄 Tải trực tiếp file Word vừa khởi tạo:")
-                col_btn1, col_btn2 = st.columns(2)
-                
+                st.markdown("#### 📄 Tải hoặc Chuyển trực tiếp file Word vừa tạo:")
                 single_path_new = os.path.join(UPLOAD_DIR, f"BaoCao_{submitted_ma_ca}.docx")
-                with col_btn1:
-                    if os.path.exists(single_path_new):
-                        render_download_button(
-                            single_path_new,
-                            f"📄 TẢI FILE WORD CA NÀY ({submitted_ma_ca})",
-                            f"BaoCao_{submitted_ma_ca}.docx"
-                        )
-                with col_btn2:
-                    if os.path.exists(MASTER_DOCX_PATH):
-                        render_download_button(
-                            MASTER_DOCX_PATH,
-                            "📘 TẢI FILE WORD TỔNG MỚI NHẤT",
-                            "Baocao_Tonghop_Capnhat.docx"
-                        )
+                if os.path.exists(single_path_new):
+                    render_download_and_share_button(
+                        single_path_new,
+                        f"TẢI FILE WORD CA NÀY ({submitted_ma_ca})",
+                        f"BaoCao_{submitted_ma_ca}.docx"
+                    )
                 
                 st.markdown("---")
                 if st.button("🏠 QUAY VỀ LẬP BÁO CÁO MỚI", use_container_width=True):
@@ -439,33 +515,38 @@ else:
                                     gc_kho = st.text_input(f"📝 Ghi chú riêng cho [{kho}]", value="", key=f"gc_{kho}")
 
                                 with col_r:
-                                    file_img = st.file_uploader(f"📸 Chụp / Tải ảnh cho [{kho}]", type=["jpg", "png", "jpeg"], key=f"img_{kho}")
+                                    # MỞ RỘNG: Lựa chọn nhiều ảnh cùng lúc cho 1 kho
+                                    files_img = st.file_uploader(f"📸 Chụp / Tải NHIỀU ÁNH cho [{kho}]", type=["jpg", "png", "jpeg"], accept_multiple_files=True, key=f"img_{kho}")
 
                                 kho_inputs[kho] = {
                                     "nhiet_do": n_do, "do_am": d_am, "san_luong": s_luong,
-                                    "trang_thai": t_thai, "ghi_chu_kho": gc_kho, "file_img": file_img
+                                    "trang_thai": t_thai, "ghi_chu_kho": gc_kho, "files_img": files_img
                                 }
 
                         btn_submit = st.form_submit_button("🚀 GỬI TOÀN BỘ BÁO CÁO CA TRỰC")
 
                     if btn_submit:
-                        with st.spinner("⏳ Đang nén ảnh, cập nhật mốc thời gian và kẻ khung tạo báo cáo Word..."):
+                        with st.spinner("⏳ Đang xử lý tự động xoay đứng danh sách ảnh, bố cục dạng lưới và khởi tạo file Word..."):
                             now_real = datetime.now(pytz.timezone('Asia/Ho_Chi_Minh')).strftime("%d/%m/%Y %H:%M:%S")
                             
                             cursor.execute("INSERT INTO bao_cao_tong_hop (ma_ca_truc, thoi_gian, ca_truc, nguoi_bao_cao, ghi_chu_chung) VALUES (?, ?, ?, ?, ?)",
                                            (ma_ca, now_real, ca_truc_str, nguoi_lap, ghi_chu_chung))
                             
                             for kho, data in kho_inputs.items():
-                                img_path = ""
-                                if data["file_img"]:
-                                    img_filename = f"{ma_ca}_{kho}.jpg"
-                                    img_path = os.path.join(UPLOAD_DIR, img_filename)
-                                    process_and_save_image(data["file_img"], img_path)
+                                saved_paths = []
+                                if data["files_img"]:
+                                    for idx_f, f_item in enumerate(data["files_img"]):
+                                        img_filename = f"{ma_ca}_{kho}_{idx_f}.jpg"
+                                        img_path = os.path.join(UPLOAD_DIR, img_filename)
+                                        if process_and_save_image(f_item, img_path):
+                                            saved_paths.append(img_path)
+
+                                str_paths = ",".join(saved_paths)
 
                                 cursor.execute('''
                                     INSERT INTO chi_tiet_kho (ma_ca_truc, ten_kho, nhiet_do, do_am, san_luong, trang_thai_may, ghi_chu_kho, duong_dan_anh)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], data["ghi_chu_kho"], img_path))
+                                ''', (ma_ca, kho, data["nhiet_do"], data["do_am"], data["san_luong"], data["trang_thai"], data["ghi_chu_kho"], str_paths))
 
                             conn.commit()
                             append_to_master_docx(ma_ca)
@@ -474,7 +555,7 @@ else:
         else:
             st.warning("🔒 Tài khoản của bạn là quyền VIEWER (Chỉ xem), không được phép lập báo cáo.")
 
-    # TAB 3: CÀI ĐẶT SÂU (GIỮ NGUYÊN HOÀN TOÀN TẤT CẢ TÍNH NĂNG CÀI ĐẶT)
+    # TAB 3: CÀI ĐẶT SÂU (GIỮ NGUYÊN)
     with tabs[2]:
         st.subheader("⚙️ Cài Đặt Hệ Thống & Quản Lý Sâu")
         
@@ -496,7 +577,6 @@ else:
                 st.rerun()
 
             st.markdown("---")
-            
             sub_tab1, sub_tab2 = st.tabs(["🏬 Quản Lý Kho & Trạng Thái", "👥 Quản Lý Tài Khoản"])
 
             with sub_tab1:
