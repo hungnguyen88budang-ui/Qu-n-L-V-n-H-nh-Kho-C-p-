@@ -153,9 +153,7 @@ CREATE TABLE IF NOT EXISTS tai_khoan (
 )
 ''')
 
-cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("admin", "admin123", "Quản Trị Viên Hùng", "admin", "hoat_dong")')
-cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("nv01", "", "Nguyễn Văn A", "nhanvien", "hoat_dong")')
-cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("xem01", "", "Ban Giám Đốc", "viewer", "hoat_dong")')
+cursor.execute('INSERT OR IGNORE INTO tai_khoan (username, password, ho_ten, vai_tro, trang_thai) VALUES ("admin", "111111", "Quản Trị Viên Nguyễn Trọng Hưng", "admin", "hoat_dong")')
 conn.commit()
 
 # ---------------------------------------------------------
